@@ -1,0 +1,8 @@
+.home-page > * {
+  margin-bottom: 1.25rem;
+}
+
+.home-hero,
+.home-secondary {
+  min-height: 160px;
+}

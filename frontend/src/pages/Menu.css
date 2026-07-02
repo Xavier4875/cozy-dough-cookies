@@ -1,0 +1,80 @@
+.menu-page h1 {
+  margin-bottom: 1.5rem;
+}
+
+.product-section {
+  margin-bottom: 2rem;
+  padding-left: 0.75rem;
+  border-left: 4px solid #d8c3a5;
+}
+
+.product-section--special {
+  border-left-color: #c98a3e;
+}
+
+.product-section--premium {
+  border-left-color: #8a5cf6;
+}
+
+.product-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.product-section-price {
+  color: #6b7280;
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+
+.cookie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1.25rem;
+}
+
+.cookie-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cookie-flavor {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.cookie-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stepper-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stepper-btn:hover:not(:disabled) {
+  background: #f4e9d8;
+}
+
+.stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stepper-qty {
+  min-width: 1.25rem;
+  text-align: center;
+  font-weight: 600;
+}
