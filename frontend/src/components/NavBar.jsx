@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { useCart } from '../context/CartContext.jsx';
+import { useCart } from '../context/useCart.js';
 import './NavBar.css';
 
 const TABS = [
@@ -10,7 +10,8 @@ const TABS = [
 ];
 
 function NavBar() {
-  const { cartCount, toggleCart } = useCart();
+  const { cart, toggleCart } = useCart();
+  const cartCount = cart.cookieCount;
 
   return (
     <header className="navbar">

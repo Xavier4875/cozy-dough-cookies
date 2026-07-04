@@ -1,4 +1,4 @@
-import { useCart } from '../context/CartContext.jsx';
+import { useCart } from '../context/useCart.js';
 import './CartDrawer.css';
 
 function CartDrawer() {
@@ -6,13 +6,14 @@ function CartDrawer() {
     isCartOpen,
     closeCart,
     cart,
-    removeFromCart,
-    cartTotal,
-    order,
+    activeOrderId,
+    switchActiveOrder,
+    removeOrder,
+    placedOrders,
     checkingOut,
     checkoutError,
-    checkout,
-    startNewOrder,
+    checkoutOrder,
+    checkoutAll,
   } = useCart();
 
   if (!isCartOpen) return null;
@@ -21,7 +22,7 @@ function CartDrawer() {
     <div className="cart-drawer-overlay" onClick={closeCart}>
       <aside className="cart-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="cart-drawer-header">
-          <h2>{order ? 'Order confirmed' : 'Your Cart'}</h2>
+          <h2>Your Cart</h2>
           <button
             className="cart-drawer-close"
             onClick={closeCart}
@@ -31,56 +32,96 @@ function CartDrawer() {
           </button>
         </div>
 
-        {order ? (
-          <div className="order-confirmation">
-            <p>{order.message}</p>
-            <p className="order-id">Order #{order.orderId}</p>
-            <ul className="cart-list">
-              {order.items.map((item) => (
-                <li key={item.id}>
-                  <span>
-                    {item.flavor} × {item.qty}
-                  </span>
-                  <span>${(item.price * item.qty).toFixed(2)}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="cart-total">Total: ${order.total.toFixed(2)}</p>
-            <button className="add-btn" onClick={startNewOrder}>
-              Start new order
-            </button>
+        {placedOrders.length > 0 && (
+          <div className="order-history">
+            <h3 className="order-history-title">Order history</h3>
+            {placedOrders.map((order) => (
+              <div key={order.orderId} className="receipt-order">
+                <p className="receipt-order-title">
+                  <span className="order-id">#{order.orderId}</span>
+                </p>
+                <ul className="cart-list">
+                  {order.items.map((item) => (
+                    <li key={item.id}>
+                      <span>
+                        {item.flavor} × {item.qty}
+                      </span>
+                      <span>${(item.price * item.qty).toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
+              </div>
+            ))}
           </div>
-        ) : cart.length === 0 ? (
+        )}
+
+        <h3 className="cart-section-title">In progress</h3>
+        {cart.isEmpty ? (
           <p className="empty-cart">Your cart is empty.</p>
         ) : (
           <>
-            <ul className="cart-list">
-              {cart.map((item) => (
-                <li key={item.id}>
-                  <span>
-                    {item.flavor} × {item.qty}
-                  </span>
-                  <span className="cart-item-right">
-                    ${(item.price * item.qty).toFixed(2)}
+            {cart.orders.map((order, index) => (
+              <div
+                key={order.id}
+                className={
+                  'cart-order' + (order.id === activeOrderId ? ' cart-order--active' : '')
+                }
+              >
+                <div className="cart-order-header">
+                  <button
+                    className="cart-order-title"
+                    onClick={() => switchActiveOrder(order.id)}
+                  >
+                    Order {index + 1}
+                    {order.id === activeOrderId && ' (editing)'}
+                  </button>
+                  {cart.orders.length > 1 && (
                     <button
                       className="remove-btn"
-                      onClick={() => removeFromCart(item.id)}
-                      aria-label={`Remove one ${item.flavor}`}
+                      onClick={() => removeOrder(order.id)}
+                      aria-label={`Remove order ${index + 1}`}
                     >
                       −
                     </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="cart-total">Total: ${cartTotal.toFixed(2)}</p>
+                  )}
+                </div>
+                {order.isEmpty ? (
+                  <p className="empty-cart">No cookies yet.</p>
+                ) : (
+                  <ul className="cart-list">
+                    {order.items.map((item) => (
+                      <li key={item.cookie.id}>
+                        <span>
+                          {item.cookie.flavor} × {item.qty}
+                        </span>
+                        <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="cart-order-footer">
+                  <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
+                  <button
+                    className="add-btn"
+                    onClick={() => checkoutOrder(order.id)}
+                    disabled={checkingOut || order.isEmpty}
+                  >
+                    Checkout this order
+                  </button>
+                </div>
+              </div>
+            ))}
+            <p className="cart-total cart-grand-total">
+              Grand total: ${cart.grandTotal.toFixed(2)}
+            </p>
             {checkoutError && <p className="checkout-error">{checkoutError}</p>}
             <button
               className="checkout-btn"
-              onClick={checkout}
-              disabled={checkingOut}
+              onClick={checkoutAll}
+              disabled={checkingOut || cart.isEmpty}
             >
-              {checkingOut ? 'Placing order...' : 'Checkout'}
+              {checkingOut ? 'Placing order...' : 'Checkout all orders'}
             </button>
           </>
         )}

@@ -1,0 +1,51 @@
+// Immutable-style: every mutation method returns a *new* Order rather than
+// modifying this one, so instances can be dropped straight into React state.
+export class Order {
+  constructor(items = [], id = null) {
+    // crypto.randomUUID() rather than an incrementing counter: a module-level
+    // counter can reset (e.g. on a dev-server hot reload) while existing
+    // Order objects are still sitting in React state, producing duplicate
+    // ids/React keys. A random id can't collide with a pre-reset one.
+    this.id = id ?? crypto.randomUUID();
+    this.items = items; // [{ cookie, qty }]
+  }
+
+  addCookie(cookie) {
+    const existing = this.items.find((item) => item.cookie.id === cookie.id);
+    const items = existing
+      ? this.items.map((item) =>
+          item.cookie.id === cookie.id ? { ...item, qty: item.qty + 1 } : item
+        )
+      : [...this.items, { cookie, qty: 1 }];
+    return new Order(items, this.id);
+  }
+
+  removeCookie(cookieId) {
+    const items = this.items
+      .map((item) =>
+        item.cookie.id === cookieId ? { ...item, qty: item.qty - 1 } : item
+      )
+      .filter((item) => item.qty > 0);
+    return new Order(items, this.id);
+  }
+
+  qtyOf(cookieId) {
+    return this.items.find((item) => item.cookie.id === cookieId)?.qty ?? 0;
+  }
+
+  get isEmpty() {
+    return this.items.length === 0;
+  }
+
+  get total() {
+    return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
+  }
+
+  get cookieCount() {
+    return this.items.reduce((sum, item) => sum + item.qty, 0);
+  }
+
+  toCheckoutPayload() {
+    return { items: this.items.map((item) => ({ id: item.cookie.id, qty: item.qty })) };
+  }
+}

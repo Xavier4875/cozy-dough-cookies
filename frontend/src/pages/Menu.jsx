@@ -1,5 +1,6 @@
-import { useCart } from '../context/CartContext.jsx';
+import { useCart } from '../context/useCart.js';
 import ImagePlaceholder from '../components/ImagePlaceholder.jsx';
+import OrderSwitcher from '../components/OrderSwitcher.jsx';
 import './Menu.css';
 
 const TYPE_ORDER = ['standard', 'special', 'premium'];
@@ -10,11 +11,13 @@ const TYPE_LABELS = {
 };
 
 function Menu() {
-  const { products, addToCart, removeFromCart, qtyInCart } = useCart();
+  const { products, addCookieToActiveOrder, removeCookieFromActiveOrder, qtyInActiveOrder } =
+    useCart();
 
   return (
     <div className="menu-page">
       <h1>Menu</h1>
+      <OrderSwitcher />
       {TYPE_ORDER.map((type) => {
         const typeProducts = products.filter((p) => p.type === type);
         if (typeProducts.length === 0) return null;
@@ -31,7 +34,7 @@ function Menu() {
             </h2>
             <div className="cookie-grid">
               {typeProducts.map((p) => {
-                const qty = qtyInCart(p.id);
+                const qty = qtyInActiveOrder(p.id);
                 return (
                   <div key={p.id} className="cookie-card">
                     <ImagePlaceholder label={p.flavor} aspectRatio="1 / 1" />
@@ -39,7 +42,7 @@ function Menu() {
                     <div className="cookie-stepper">
                       <button
                         className="stepper-btn"
-                        onClick={() => removeFromCart(p.id)}
+                        onClick={() => removeCookieFromActiveOrder(p.id)}
                         disabled={qty === 0}
                         aria-label={`Remove one ${p.flavor}`}
                       >
@@ -48,7 +51,7 @@ function Menu() {
                       <span className="stepper-qty">{qty}</span>
                       <button
                         className="stepper-btn"
-                        onClick={() => addToCart(p)}
+                        onClick={() => addCookieToActiveOrder(p)}
                         aria-label={`Add one ${p.flavor}`}
                       >
                         +

@@ -51,12 +51,6 @@
   border-bottom: 1px solid #eee;
 }
 
-.cart-item-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .remove-btn {
   width: 1.5rem;
   height: 1.5rem;

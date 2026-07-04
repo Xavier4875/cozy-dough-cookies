@@ -1,12 +1,18 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState } from 'react';
+import { Cart } from '../models/Cart.js';
+import { Order } from '../models/Order.js';
 
-const CartContext = createContext(null);
+// Exported so useCart.js (a separate file, kept apart so this file only
+// exports the CartProvider component — mixing a component export with a
+// plain hook export in one file breaks Vite Fast Refresh) can read from it.
+export const CartContext = createContext(null);
 
 export function CartProvider({ children }) {
   const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => new Cart([new Order()]));
+  const [activeOrderId, setActiveOrderId] = useState(() => cart.orders[0].id);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [order, setOrder] = useState(null);
+  const [placedOrders, setPlacedOrders] = useState([]);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
 
@@ -17,49 +23,70 @@ export function CartProvider({ children }) {
       .catch(() => setProducts([]));
   }, []);
 
-  function addToCart(product) {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === product.id ? { ...item, qty: item.qty + 1 } : item
-        );
-      }
-      return [...prev, { ...product, qty: 1 }];
+  const activeOrder = cart.orders.find((order) => order.id === activeOrderId) ?? cart.orders[0];
+
+  function addCookieToActiveOrder(cookie) {
+    setCart((prev) => prev.updateOrder(activeOrderId, (order) => order.addCookie(cookie)));
+  }
+
+  function removeCookieFromActiveOrder(cookieId) {
+    setCart((prev) => prev.updateOrder(activeOrderId, (order) => order.removeCookie(cookieId)));
+  }
+
+  function qtyInActiveOrder(cookieId) {
+    return activeOrder.qtyOf(cookieId);
+  }
+
+  function startNewOrder() {
+    const order = new Order();
+    setCart((prev) => prev.addOrder(order));
+    setActiveOrderId(order.id);
+  }
+
+  function switchActiveOrder(orderId) {
+    setActiveOrderId(orderId);
+  }
+
+  function removeOrder(orderId) {
+    const next = cart.removeOrder(orderId);
+    if (orderId !== activeOrderId) {
+      setCart(next);
+      return;
+    }
+    if (next.orders.length > 0) {
+      setActiveOrderId(next.orders[0].id);
+      setCart(next);
+    } else {
+      const fresh = new Order();
+      setActiveOrderId(fresh.id);
+      setCart(next.addOrder(fresh));
+    }
+  }
+
+  async function submitToBackend(payload) {
+    const res = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Checkout failed.');
+    }
+    return data;
   }
 
-  function removeFromCart(productId) {
-    setCart((prev) =>
-      prev
-        .map((item) =>
-          item.id === productId ? { ...item, qty: item.qty - 1 } : item
-        )
-        .filter((item) => item.qty > 0)
-    );
-  }
+  // Checks out a single order, leaving every other in-progress order untouched.
+  async function checkoutOrder(orderId) {
+    const order = cart.orders.find((o) => o.id === orderId);
+    if (!order || order.isEmpty) return;
 
-  function qtyInCart(productId) {
-    return cart.find((item) => item.id === productId)?.qty ?? 0;
-  }
-
-  async function checkout() {
     setCheckingOut(true);
     setCheckoutError('');
     try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart.map((item) => ({ id: item.id, qty: item.qty })),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Checkout failed.');
-      }
-      setOrder(data);
-      setCart([]);
+      const data = await submitToBackend({ orders: [order.toCheckoutPayload()] });
+      setPlacedOrders((prev) => [...prev, ...data.orders]);
+      removeOrder(orderId);
     } catch (err) {
       setCheckoutError(err.message);
     } finally {
@@ -67,40 +94,47 @@ export function CartProvider({ children }) {
     }
   }
 
-  function startNewOrder() {
-    setOrder(null);
-    setCheckoutError('');
-  }
+  // Checks out every non-empty order in the cart together, then starts fresh.
+  async function checkoutAll() {
+    const payload = cart.toCheckoutPayload();
+    if (payload.orders.length === 0) return;
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
+    setCheckingOut(true);
+    setCheckoutError('');
+    try {
+      const data = await submitToBackend(payload);
+      setPlacedOrders((prev) => [...prev, ...data.orders]);
+      const fresh = new Order();
+      setCart(new Cart([fresh]));
+      setActiveOrderId(fresh.id);
+    } catch (err) {
+      setCheckoutError(err.message);
+    } finally {
+      setCheckingOut(false);
+    }
+  }
 
   const value = {
     products,
     cart,
-    addToCart,
-    removeFromCart,
-    qtyInCart,
-    cartTotal,
-    cartCount,
+    activeOrder,
+    activeOrderId,
+    addCookieToActiveOrder,
+    removeCookieFromActiveOrder,
+    qtyInActiveOrder,
+    startNewOrder,
+    switchActiveOrder,
+    removeOrder,
     isCartOpen,
     openCart: () => setIsCartOpen(true),
     closeCart: () => setIsCartOpen(false),
     toggleCart: () => setIsCartOpen((prev) => !prev),
-    order,
+    placedOrders,
     checkingOut,
     checkoutError,
-    checkout,
-    startNewOrder,
+    checkoutOrder,
+    checkoutAll,
   };
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
-}
-
-export function useCart() {
-  const ctx = useContext(CartContext);
-  if (!ctx) {
-    throw new Error('useCart must be used within a CartProvider');
-  }
-  return ctx;
 }

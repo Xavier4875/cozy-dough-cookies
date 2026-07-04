@@ -1,0 +1,61 @@
+.order-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.order-chip {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #d8c3a5;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.order-chip--active {
+  border-color: #3d2b1f;
+  background: #3d2b1f;
+}
+
+.order-chip--active .order-chip-label {
+  color: #fffaf3;
+}
+
+.order-chip-label {
+  border: none;
+  background: none;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  color: #3d2b1f;
+  cursor: pointer;
+}
+
+.order-chip-remove {
+  border: none;
+  border-left: 1px solid rgba(61, 43, 31, 0.2);
+  background: none;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+.order-chip--active .order-chip-remove {
+  color: #fffaf3;
+  border-left-color: rgba(255, 250, 243, 0.3);
+}
+
+.order-chip--new {
+  border-style: dashed;
+  background: none;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  color: #3d2b1f;
+  cursor: pointer;
+}
+
+.order-chip--new:hover {
+  background: #f4e9d8;
+}
