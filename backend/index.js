@@ -14,23 +14,17 @@ app.use(cors());
 app.use(express.json());
 
 // Stubbed out for now — real data comes once DynamoDB is wired up.
-const PRODUCTS = [
-  new Cookie('standard', 'Chocolate Chip'),
-  new Cookie('standard', 'Monster'),
-  new Cookie('standard', 'Butter'),
-  new Cookie('standard', 'Peanut Butter'),
-  new Cookie('standard', 'Snickerdoodle'),
-  new Cookie('standard', 'Oatmeal'),
-  new Cookie('standard', 'Oatmeal Raisin'),
-  new Cookie('standard', 'Butterscotch'),
-  new Cookie('standard', 'Oatmeal Scotchies'),
-  new Cookie('special', 'Lemon'),
-  new Cookie('special', 'White Chocolate Raspberry'),
-  new Cookie('special', 'Strawberry Cheesecake'),
-  new Cookie('special', 'Brownie'),
-  new Cookie('premium', 'Strawberry-Blueberry-Cheesecake Sandwich'),
-  new Cookie('premium', 'Oatmeal Cream Pie'),
-];
+// One product per flavor per size (single/half dozen/full dozen), built from
+// Cookie's own type->flavor table so the list isn't duplicated here.
+const SIZES = ['single', 'half_dozen', 'full_dozen'];
+const PRODUCTS = [];
+for (const [type, info] of Object.entries(Cookie.TYPES)) {
+  for (const flavor of info.flavors) {
+    for (const size of SIZES) {
+      PRODUCTS.push(new Cookie(type, flavor, size));
+    }
+  }
+}
 
 // Simple health check so the frontend has something to talk to right away.
 app.get('/api/health', (req, res) => {

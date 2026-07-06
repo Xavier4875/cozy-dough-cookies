@@ -28,6 +28,10 @@ export class Cart {
     return this.orders.reduce((sum, order) => sum + order.cookieCount, 0);
   }
 
+  get orderCount() {
+    return this.orders.filter((order) => !order.isEmpty).length;
+  }
+
   get isEmpty() {
     return this.orders.every((order) => order.isEmpty);
   }

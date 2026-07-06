@@ -31,6 +31,7 @@ export class Order {
         id: item.cookie.id,
         type: item.cookie.type,
         flavor: item.cookie.flavor,
+        sizeLabel: item.cookie.sizeLabel,
         price: item.cookie.price,
         qty: item.qty,
       })),

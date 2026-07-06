@@ -44,7 +44,7 @@ function CartDrawer() {
                   {order.items.map((item) => (
                     <li key={item.id}>
                       <span>
-                        {item.flavor} × {item.qty}
+                        {item.flavor} ({item.sizeLabel}) × {item.qty}
                       </span>
                       <span>${(item.price * item.qty).toFixed(2)}</span>
                     </li>
@@ -93,7 +93,7 @@ function CartDrawer() {
                     {order.items.map((item) => (
                       <li key={item.cookie.id}>
                         <span>
-                          {item.cookie.flavor} × {item.qty}
+                          {item.cookie.flavor} ({item.cookie.sizeLabel}) × {item.qty}
                         </span>
                         <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
                       </li>
@@ -102,13 +102,15 @@ function CartDrawer() {
                 )}
                 <div className="cart-order-footer">
                   <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
-                  <button
-                    className="add-btn"
-                    onClick={() => checkoutOrder(order.id)}
-                    disabled={checkingOut || order.isEmpty}
-                  >
-                    Checkout this order
-                  </button>
+                  {!order.isEmpty && (
+                    <button
+                      className="checkout-order-btn"
+                      onClick={() => checkoutOrder(order.id)}
+                      disabled={checkingOut}
+                    >
+                      Checkout this order
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

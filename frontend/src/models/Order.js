@@ -1,12 +1,23 @@
+// crypto.randomUUID() only exists in secure contexts (HTTPS, or the
+// special-cased localhost) — it's silently absent when the dev server is
+// opened over plain HTTP via a LAN IP (e.g. testing on a phone). Falling
+// back to a timestamp+random id keeps id generation working everywhere.
+function generateId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // Immutable-style: every mutation method returns a *new* Order rather than
 // modifying this one, so instances can be dropped straight into React state.
 export class Order {
   constructor(items = [], id = null) {
-    // crypto.randomUUID() rather than an incrementing counter: a module-level
-    // counter can reset (e.g. on a dev-server hot reload) while existing
-    // Order objects are still sitting in React state, producing duplicate
-    // ids/React keys. A random id can't collide with a pre-reset one.
-    this.id = id ?? crypto.randomUUID();
+    // A module-level counter can reset (e.g. on a dev-server hot reload)
+    // while existing Order objects are still sitting in React state,
+    // producing duplicate ids/React keys. A random id can't collide with
+    // a pre-reset one.
+    this.id = id ?? generateId();
     this.items = items; // [{ cookie, qty }]
   }
 

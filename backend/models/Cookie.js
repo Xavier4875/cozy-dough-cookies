@@ -1,6 +1,6 @@
 const TYPES = {
   standard: {
-    price: 2.0,
+    prices: { single: 2.0, half_dozen: 9.0, full_dozen: 18.0 },
     flavors: [
       'Chocolate Chip',
       'Monster',
@@ -14,7 +14,7 @@ const TYPES = {
     ],
   },
   special: {
-    price: 3.0,
+    prices: { single: 3.0, half_dozen: 15.0, full_dozen: 30.0 },
     flavors: [
       'Lemon',
       'White Chocolate Raspberry',
@@ -23,7 +23,7 @@ const TYPES = {
     ],
   },
   premium: {
-    price: 6.0,
+    prices: { single: 6.0, half_dozen: 30.0, full_dozen: 60.0 },
     flavors: [
       'Strawberry-Blueberry-Cheesecake Sandwich',
       'Oatmeal Cream Pie',
@@ -31,12 +31,18 @@ const TYPES = {
   },
 };
 
+const SIZE_LABELS = {
+  single: 'Single',
+  half_dozen: 'Half Dozen',
+  full_dozen: 'Full Dozen',
+};
+
 export class Cookie {
   static TYPES = TYPES;
 
   static #nextId = 1;
 
-  constructor(type, flavor) {
+  constructor(type, flavor, size) {
     const typeInfo = TYPES[type];
     if (!typeInfo) {
       throw new Error(`Unknown cookie type: ${type}`);
@@ -44,10 +50,51 @@ export class Cookie {
     if (!typeInfo.flavors.includes(flavor)) {
       throw new Error(`"${flavor}" is not a valid ${type} flavor.`);
     }
+    if (!SIZE_LABELS[size]) {
+      throw new Error(`Unknown cookie size: ${size}`);
+    }
 
     this.id = String(Cookie.#nextId++);
     this.type = type;
     this.flavor = flavor;
-    this.price = typeInfo.price;
+
+    this.is_single = false;
+    this.is_half_dozen = false;
+    this.is_full_dozen = false;
+    if (size === 'single') this.is_single = true;
+    else if (size === 'half_dozen') this.is_half_dozen = true;
+    else if (size === 'full_dozen') this.is_full_dozen = true;
+  }
+
+  // Price depends on both the type and which size flag is set, per the
+  // per-type/per-size price table above.
+  get price() {
+    const prices = TYPES[this.type].prices;
+    if (this.is_single) return prices.single;
+    if (this.is_half_dozen) return prices.half_dozen;
+    if (this.is_full_dozen) return prices.full_dozen;
+    return 0;
+  }
+
+  get sizeLabel() {
+    if (this.is_single) return SIZE_LABELS.single;
+    if (this.is_half_dozen) return SIZE_LABELS.half_dozen;
+    if (this.is_full_dozen) return SIZE_LABELS.full_dozen;
+    return null;
+  }
+
+  // price/sizeLabel are getters (not own properties), so without this they'd
+  // be dropped by JSON.stringify/res.json.
+  toJSON() {
+    return {
+      id: this.id,
+      type: this.type,
+      flavor: this.flavor,
+      is_single: this.is_single,
+      is_half_dozen: this.is_half_dozen,
+      is_full_dozen: this.is_full_dozen,
+      price: this.price,
+      sizeLabel: this.sizeLabel,
+    };
   }
 }

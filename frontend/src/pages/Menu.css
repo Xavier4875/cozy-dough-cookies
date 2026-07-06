@@ -1,19 +1,92 @@
-.menu-page h1 {
+.menu-header {
+  position: sticky;
+  top: var(--navbar-height, 64px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  margin-bottom: 1rem;
+  background: #fff;
+}
+
+.menu-header h1 {
+  margin: 0;
+}
+
+.size-nav {
+  position: sticky;
+  top: calc(var(--navbar-height, 64px) + var(--menu-header-height, 58px));
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
   margin-bottom: 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+}
+
+.size-nav-btn {
+  padding: 0.5rem 1.1rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 999px;
+  background: #fff;
+  color: #3d2b1f;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.size-nav-btn:hover {
+  background: #f4e9d8;
+}
+
+.size-nav-btn--active {
+  background: #3d2b1f;
+  border-color: #3d2b1f;
+  color: #fffaf3;
+}
+
+.size-nav-btn--active:hover {
+  background: #55402f;
+}
+
+.size-section {
+  /* Reserves space for the sticky navbar + menu-header + size-nav stack so
+     scrollIntoView stops with the section label visible just below them,
+     instead of scrolling the label out of sight underneath. Built from the
+     same measured heights the scroll-spy in Menu.jsx uses, so the resting
+     scroll position always matches what the scroll-spy considers "arrived." */
+  scroll-margin-top: calc(
+    var(--navbar-height, 64px) + var(--menu-header-height, 58px) +
+      var(--size-nav-height, 60px)
+  );
+  margin-bottom: 2.5rem;
+}
+
+.size-section-title {
+  margin: 0 0 1rem;
+  font-size: 1.3rem;
+  border-bottom: 2px solid #3d2b1f;
+  padding-bottom: 0.4rem;
 }
 
 .product-section {
   margin-bottom: 2rem;
   padding-left: 0.75rem;
-  border-left: 4px solid #d8c3a5;
+  border-left: 4px solid #2e7d32;
 }
 
 .product-section--special {
-  border-left-color: #c98a3e;
+  border-left-color: #f9a825;
 }
 
 .product-section--premium {
-  border-left-color: #8a5cf6;
+  border-left-color: #1565c0;
 }
 
 .product-section-title {
@@ -44,6 +117,7 @@
   margin: 0;
   text-align: center;
   font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .cookie-stepper {
@@ -55,17 +129,28 @@
 .stepper-btn {
   width: 1.75rem;
   height: 1.75rem;
-  border-radius: 6px;
-  border: 1px solid #d8c3a5;
-  background: #fff;
-  color: #3d2b1f;
-  font-size: 1rem;
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
 }
 
-.stepper-btn:hover:not(:disabled) {
-  background: #f4e9d8;
+.stepper-btn--add {
+  color: #2e7d32;
+}
+
+.stepper-btn--add:hover:not(:disabled) {
+  color: #1b5e20;
+}
+
+.stepper-btn--remove {
+  color: #c62828;
+}
+
+.stepper-btn--remove:hover:not(:disabled) {
+  color: #8e0000;
 }
 
 .stepper-btn:disabled {
