@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useCart } from '../context/useCart.js';
+import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import './NavBar.css';
 
 const TABS = [
@@ -19,20 +20,7 @@ function NavBar() {
   // elements further down the page (e.g. Menu's header/size-nav bars) can
   // offset below it correctly — the navbar wraps to extra lines on narrow
   // screens, so its height isn't a fixed number.
-  useEffect(() => {
-    const el = navRef.current;
-    if (!el) return;
-    const updateHeight = () => {
-      document.documentElement.style.setProperty(
-        '--navbar-height',
-        `${el.getBoundingClientRect().height}px`
-      );
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  usePublishHeight(navRef, '--navbar-height');
 
   return (
     <header className="navbar" ref={navRef}>

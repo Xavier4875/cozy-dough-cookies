@@ -1,0 +1,46 @@
+.mobile-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.mobile-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid #eee;
+  box-shadow: 0 -2px 8px rgba(61, 43, 31, 0.08);
+}
+
+.mobile-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.25rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  color: #6b7280;
+  text-decoration: none;
+  font-size: 0.7rem;
+}
+
+.mobile-tab-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.mobile-tab--active {
+  color: #3d2b1f;
+  font-weight: 600;
+}

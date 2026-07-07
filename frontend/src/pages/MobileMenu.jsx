@@ -4,7 +4,7 @@ import CookieGrid from '../components/CookieGrid.jsx';
 import OrderSwitcher from '../components/OrderSwitcher.jsx';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import { useScrollSpy } from '../hooks/useScrollSpy.js';
-import './Menu.css';
+import './MobileMenu.css';
 
 const SIZES = [
   { key: 'single', flag: 'is_single', label: 'Singles' },
@@ -13,23 +13,18 @@ const SIZES = [
 ];
 const SIZE_KEYS = SIZES.map((size) => size.key);
 
-function Menu() {
+// Same data/behavior as the desktop Menu, laid out for a phone: the order
+// switcher stacks below the title instead of squeezing in beside it, and
+// the size buttons are a single horizontally-scrollable row instead of
+// wrapping onto a second line.
+function MobileMenu() {
   const { products, addCookieToActiveOrder, removeCookieFromActiveOrder, qtyInActiveOrder } =
     useCart();
   const sectionRefs = useRef({});
   const sizeNavRef = useRef(null);
   const menuHeaderRef = useRef(null);
 
-  // Publishes the menu header's real rendered height so size-nav (stacked
-  // sticky below it) can offset by the right amount on any screen size.
   usePublishHeight(menuHeaderRef, '--menu-header-height');
-
-  // Publishes size-nav's own height too, so .size-section's scroll-margin-top
-  // (used by scrollIntoView to decide where to stop) reserves exactly the
-  // same space the scroll-spy's "stickyBottom" threshold uses — if these
-  // drift apart, a click scrolls to a resting spot the scroll-spy doesn't
-  // yet consider "arrived," and the button won't highlight until you scroll
-  // a little further.
   usePublishHeight(sizeNavRef, '--size-nav-height');
 
   const { activeKey: activeSize, scrollToKey: scrollToSize } = useScrollSpy({
@@ -39,13 +34,13 @@ function Menu() {
   });
 
   return (
-    <div className="menu-page">
-      <div className="menu-header" ref={menuHeaderRef}>
+    <div className="mobile-menu-page">
+      <div className="mobile-menu-header" ref={menuHeaderRef}>
         <h1>Menu</h1>
         <OrderSwitcher />
       </div>
 
-      <div className="size-nav" ref={sizeNavRef}>
+      <div className="mobile-size-nav" ref={sizeNavRef}>
         {SIZES.map((size) => (
           <button
             key={size.key}
@@ -78,4 +73,4 @@ function Menu() {
   );
 }
 
-export default Menu;
+export default MobileMenu;
