@@ -1,0 +1,70 @@
+.checkout-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.checkout-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #3d2b1f;
+  font-weight: 600;
+}
+
+.checkout-form-field input[type='text'],
+.checkout-form-field input[type='email'],
+.checkout-form-field input[type='tel'],
+.checkout-form-field textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+  resize: vertical;
+}
+
+.checkout-form-field input:focus,
+.checkout-form-field textarea:focus {
+  outline: 2px solid #3d2b1f;
+  outline-offset: 1px;
+}
+
+.checkout-form-radios {
+  display: flex;
+  gap: 1.25rem;
+  font-weight: 400;
+}
+
+.checkout-form-radios label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.checkout-form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.checkout-form-cancel {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.checkout-form-actions .checkout-btn {
+  margin-top: 0;
+  width: auto;
+  flex: 1;
+}

@@ -1,9 +1,13 @@
 import ImagePlaceholder from '../components/ImagePlaceholder.jsx';
+import Mascot from '../components/Mascot.jsx';
 import './Nutrition.css';
 
 function Nutrition() {
   return (
     <div className="nutrition-page">
+      <div className="page-mascot">
+        <Mascot />
+      </div>
       <h1>Nutrition</h1>
       <p>
         Placeholder text — general allergen and nutrition information goes

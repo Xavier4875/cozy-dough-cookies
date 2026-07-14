@@ -1,9 +1,13 @@
 import ImagePlaceholder from '../components/ImagePlaceholder.jsx';
+import Mascot from '../components/Mascot.jsx';
 import './Home.css';
 
 function Home() {
   return (
     <div className="home-page">
+      <div className="page-mascot">
+        <Mascot />
+      </div>
       <ImagePlaceholder
         label="Hero image"
         className="home-hero"

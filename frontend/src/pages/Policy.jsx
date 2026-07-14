@@ -1,9 +1,13 @@
 import ImagePlaceholder from '../components/ImagePlaceholder.jsx';
+import Mascot from '../components/Mascot.jsx';
 import './Policy.css';
 
 function Policy() {
   return (
     <div className="policy-page">
+      <div className="page-mascot">
+        <Mascot />
+      </div>
       <h1>Pickup/Delivery Policy</h1>
       <p>
         Placeholder text — describe your pickup hours/location and delivery

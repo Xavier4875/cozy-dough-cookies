@@ -114,3 +114,8 @@
   font-weight: 600;
   margin-bottom: 0.25rem;
 }
+
+.cart-mascot {
+  display: block;
+  margin: 0 auto 1rem;
+}

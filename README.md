@@ -12,6 +12,14 @@ cozy-dough-cookies/
 
 ## Step 1: run it locally
 
+**DynamoDB Local** (via Docker)
+```
+docker compose up -d
+cd backend
+npm run db:setup
+```
+Starts DynamoDB Local on http://localhost:8000 (in-memory — data resets whenever the container restarts, which is fine for dev) and creates the `CozyDoughCustomers`/`CozyDoughOrders` tables. `db:setup` is safe to re-run any time; it skips tables that already exist.
+
 **Backend**
 ```
 cd backend
@@ -33,7 +41,7 @@ Open http://localhost:5173 — you should see "Backend status: Cozy Dough Cookie
 
 ## What's next
 
-- **Step 2:** Design the DynamoDB table(s) for customers and orders.
-- **Step 3:** Replace the stubbed `/api/products` route with real product/cart/order logic against DynamoDB (DynamoDB Local via Docker works well for this before touching AWS).
-- **Step 4:** Add Stripe — Payment Intents on the backend, Stripe Elements on the frontend.
-- **Step 5:** Deploy — S3 + CloudFront for the frontend, Lambda + API Gateway (or ECS) for the backend, real DynamoDB tables.
+- **Step 2 ✅:** DynamoDB schema designed — Customers (accounts, role from a Cognito group) and Orders (customer, admin, and guest orders in one table) — see `backend/db/schema.js`.
+- **Step 3 ✅:** `/api/checkout` persists real orders to DynamoDB Local, with a checkout form collecting contact info and pickup/shipping fulfillment. The product catalog itself (`/api/products`) stays static/in-code for now — it's not customer or order data.
+- **Step 4:** Add Cognito (real accounts, guest checkout stays optional) and Stripe — Payment Intents on the backend, Stripe Elements on the frontend.
+- **Step 5:** Deploy — S3 + CloudFront for the frontend, Lambda + API Gateway (or ECS) for the backend, real DynamoDB tables, full Docker Compose stack (backend + frontend + DynamoDB) as the container images pushed to production.

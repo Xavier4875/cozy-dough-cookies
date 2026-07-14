@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useCart } from '../context/useCart.js';
 import CookieGrid from '../components/CookieGrid.jsx';
 import OrderSwitcher from '../components/OrderSwitcher.jsx';
+import Mascot from '../components/Mascot.jsx';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import { useScrollSpy } from '../hooks/useScrollSpy.js';
 import './Menu.css';
@@ -40,6 +41,10 @@ function Menu() {
 
   return (
     <div className="menu-page">
+      <div className="page-mascot">
+        <Mascot />
+      </div>
+
       <div className="menu-header" ref={menuHeaderRef}>
         <h1>Menu</h1>
         <OrderSwitcher />

@@ -1,0 +1,27 @@
+.mascot-img {
+  height: 170px;
+  width: auto;
+  animation: mascot-bob 2.6s ease-in-out infinite;
+}
+
+.page-mascot {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+@keyframes mascot-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-img {
+    animation: none;
+  }
+}

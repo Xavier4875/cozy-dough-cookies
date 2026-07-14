@@ -1,0 +1,13 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: cozy-dough-dynamodb-local
+    # -inMemory avoids DynamoDB Local's on-disk SQLite file entirely — a
+    # volume-mounted -dbPath hit a Docker-Desktop-on-Windows permission issue
+    # (container couldn't open the db file, silently retried forever, which
+    # made every authenticated request hang). Local dev data doesn't need to
+    # survive a container restart anyway — `npm run db:setup` recreates the
+    # tables in seconds.
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "8000:8000"
