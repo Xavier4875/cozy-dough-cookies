@@ -77,38 +77,45 @@ export function CartProvider({ children }) {
   }
 
   // Checks out a single order, leaving every other in-progress order untouched.
-  async function checkoutOrder(orderId) {
+  // `details` is { contact, fulfillment } collected by the checkout form.
+  // Returns whether it succeeded, so the caller knows whether to dismiss the
+  // form or leave it open (with the error visible) for a retry.
+  async function checkoutOrder(orderId, details) {
     const order = cart.orders.find((o) => o.id === orderId);
-    if (!order || order.isEmpty) return;
+    if (!order || order.isEmpty) return false;
 
     setCheckingOut(true);
     setCheckoutError('');
     try {
-      const data = await submitToBackend({ orders: [order.toCheckoutPayload()] });
+      const data = await submitToBackend({ orders: [order.toCheckoutPayload()], ...details });
       setPlacedOrders((prev) => [...prev, ...data.orders]);
       removeOrder(orderId);
+      return true;
     } catch (err) {
       setCheckoutError(err.message);
+      return false;
     } finally {
       setCheckingOut(false);
     }
   }
 
   // Checks out every non-empty order in the cart together, then starts fresh.
-  async function checkoutAll() {
+  async function checkoutAll(details) {
     const payload = cart.toCheckoutPayload();
-    if (payload.orders.length === 0) return;
+    if (payload.orders.length === 0) return false;
 
     setCheckingOut(true);
     setCheckoutError('');
     try {
-      const data = await submitToBackend(payload);
+      const data = await submitToBackend({ ...payload, ...details });
       setPlacedOrders((prev) => [...prev, ...data.orders]);
       const fresh = new Order();
       setCart(new Cart([fresh]));
       setActiveOrderId(fresh.id);
+      return true;
     } catch (err) {
       setCheckoutError(err.message);
+      return false;
     } finally {
       setCheckingOut(false);
     }

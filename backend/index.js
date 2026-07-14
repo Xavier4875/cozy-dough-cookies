@@ -1,11 +1,39 @@
+// Must be the first import: ES module imports are evaluated in order before
+// any of this file's own statements run, and db/client.js (imported below,
+// transitively via ordersRepo.js) reads AWS_* env vars at construction time.
+// A later `dotenv.config()` call here would run only after that client was
+// already built with those vars unset.
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import { randomUUID } from 'crypto';
 import { Cookie } from './models/Cookie.js';
 import { Order } from './models/Order.js';
 import { Cart } from './models/Cart.js';
+import { createOrder, getOrderById } from './db/ordersRepo.js';
 
-dotenv.config();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateContact(contact) {
+  if (!contact || typeof contact !== 'object') return 'Contact information is required.';
+  const { name, email, phone } = contact;
+  if (!name || !String(name).trim()) return 'Name is required.';
+  if (!email || !EMAIL_RE.test(String(email).trim())) return 'A valid email is required.';
+  if (!phone || !String(phone).trim()) return 'Phone number is required.';
+  return null;
+}
+
+function validateFulfillment(fulfillment) {
+  if (!fulfillment || typeof fulfillment !== 'object') return 'Fulfillment method is required.';
+  const { method, shippingAddress } = fulfillment;
+  if (method !== 'pickup' && method !== 'shipping') {
+    return 'Fulfillment method must be "pickup" or "shipping".';
+  }
+  if (method === 'shipping' && (!shippingAddress || !String(shippingAddress).trim())) {
+    return 'Shipping address is required for shipping orders.';
+  }
+  return null;
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,16 +63,39 @@ app.get('/api/products', (req, res) => {
   res.json(PRODUCTS);
 });
 
-// Mock checkout: no real payment yet, but prices/totals are computed
-// server-side from PRODUCTS so the client can't just send whatever total it wants.
-// A cart can hold several orders at once (e.g. separate pickup batches), so the 
-// request carries a list of orders, each with its own list of cookie/qty items.
-app.post('/api/checkout', (req, res) => {
+// Real persistence, no real payment yet — prices/totals are computed
+// server-side from PRODUCTS so the client can't just send whatever total it
+// wants, and every order gets written to DynamoDB. No accounts/Cognito yet,
+// so every order is created without a customerId (effectively a guest
+// order); contact/fulfillment apply to the whole checkout action and get
+// stamped onto each order created in it.
+// A cart can hold several orders at once (e.g. separate pickup batches), so
+// the request carries a list of orders, each with its own cookie/qty items.
+app.post('/api/checkout', async (req, res) => {
   const requestedOrders = Array.isArray(req.body.orders) ? req.body.orders : [];
 
   if (requestedOrders.length === 0) {
     return res.status(400).json({ error: 'Cart has no orders.' });
   }
+
+  const contactError = validateContact(req.body.contact);
+  if (contactError) {
+    return res.status(400).json({ error: contactError });
+  }
+  const fulfillmentError = validateFulfillment(req.body.fulfillment);
+  if (fulfillmentError) {
+    return res.status(400).json({ error: fulfillmentError });
+  }
+
+  const contact = {
+    name: String(req.body.contact.name).trim(),
+    email: String(req.body.contact.email).trim(),
+    phone: String(req.body.contact.phone).trim(),
+  };
+  const fulfillment =
+    req.body.fulfillment.method === 'shipping'
+      ? { method: 'shipping', shippingAddress: String(req.body.fulfillment.shippingAddress).trim() }
+      : { method: 'pickup' };
 
   const cart = new Cart();
 
@@ -68,10 +119,49 @@ app.post('/api/checkout', (req, res) => {
     cart.addOrder(order);
   }
 
-  res.json({
-    ...cart.toJSON(),
-    message: 'Order placed! (mock checkout — no payment was actually taken)',
-  });
+  try {
+    const persistedOrders = [];
+    for (const order of cart.orders) {
+      const { items, total } = order.toJSON();
+      const record = {
+        orderId: randomUUID(),
+        status: 'placed',
+        items,
+        subtotal: total,
+        total,
+        contact,
+        email: contact.email,
+        fulfillment,
+        payment: null,
+        createdAt: new Date().toISOString(),
+      };
+      persistedOrders.push(await createOrder(record));
+    }
+
+    res.json({
+      orders: persistedOrders,
+      grandTotal: cart.grandTotal,
+      message: 'Order placed! (mock checkout — no payment was actually taken)',
+    });
+  } catch (err) {
+    console.error('Failed to persist order:', err);
+    res.status(500).json({ error: 'Failed to save your order. Please try again.' });
+  }
+});
+
+// Mainly for verifying persistence end-to-end, and a head start on an
+// order-confirmation page later.
+app.get('/api/orders/:id', async (req, res) => {
+  try {
+    const order = await getOrderById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    res.json(order);
+  } catch (err) {
+    console.error('Failed to fetch order:', err);
+    res.status(500).json({ error: 'Failed to fetch order.' });
+  }
 });
 
 app.listen(PORT, () => {
