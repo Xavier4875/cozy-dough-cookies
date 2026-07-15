@@ -27,6 +27,9 @@ function CookieGrid({ products, addCookieToActiveOrder, removeCookieFromActiveOr
               <div key={p.id} className="cookie-card">
                 <ImagePlaceholder label={p.flavor} aspectRatio="1 / 1" />
                 <p className="cookie-flavor">{p.flavor}</p>
+                {p.is_temperature_controlled && (
+                  <p className="cookie-temp-note">Temperature Controlled: Pickup Required</p>
+                )}
                 <div className="cookie-stepper">
                   <button
                     className="stepper-btn stepper-btn--remove"

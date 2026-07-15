@@ -31,7 +31,10 @@ export function nextMascotImage() {
   if (pointer >= deck.length) {
     const previousLast = deck[deck.length - 1];
     const reshuffled = shuffle(MASCOT_IMAGES);
-    if (reshuffled[0] === previousLast) {
+    // With fewer than 2 poses there's no other slot to swap with — leave
+    // the deck as-is rather than swap reshuffled[0] with an out-of-bounds
+    // index (which would silently set it to undefined).
+    if (reshuffled.length > 1 && reshuffled[0] === previousLast) {
       const swapWith = 1 + Math.floor(Math.random() * (reshuffled.length - 1));
       [reshuffled[0], reshuffled[swapWith]] = [reshuffled[swapWith], reshuffled[0]];
     }

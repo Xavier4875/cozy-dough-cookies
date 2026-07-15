@@ -12,7 +12,6 @@ export function CartProvider({ children }) {
   const [cart, setCart] = useState(() => new Cart([new Order()]));
   const [activeOrderId, setActiveOrderId] = useState(() => cart.orders[0].id);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [placedOrders, setPlacedOrders] = useState([]);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
 
@@ -87,8 +86,7 @@ export function CartProvider({ children }) {
     setCheckingOut(true);
     setCheckoutError('');
     try {
-      const data = await submitToBackend({ orders: [order.toCheckoutPayload()], ...details });
-      setPlacedOrders((prev) => [...prev, ...data.orders]);
+      await submitToBackend({ orders: [order.toCheckoutPayload()], ...details });
       removeOrder(orderId);
       return true;
     } catch (err) {
@@ -107,8 +105,7 @@ export function CartProvider({ children }) {
     setCheckingOut(true);
     setCheckoutError('');
     try {
-      const data = await submitToBackend({ ...payload, ...details });
-      setPlacedOrders((prev) => [...prev, ...data.orders]);
+      await submitToBackend({ ...payload, ...details });
       const fresh = new Order();
       setCart(new Cart([fresh]));
       setActiveOrderId(fresh.id);
@@ -136,7 +133,6 @@ export function CartProvider({ children }) {
     openCart: () => setIsCartOpen(true),
     closeCart: () => setIsCartOpen(false),
     toggleCart: () => setIsCartOpen((prev) => !prev),
-    placedOrders,
     checkingOut,
     checkoutError,
     checkoutOrder,

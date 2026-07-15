@@ -14,7 +14,6 @@ function CartDrawerContent() {
     activeOrderId,
     switchActiveOrder,
     removeOrder,
-    placedOrders,
     checkingOut,
     checkoutError,
     checkoutOrder,
@@ -26,6 +25,13 @@ function CartDrawerContent() {
   // rather than living alongside them, so there's never more than one
   // checkout action in flight at a time.
   const [checkoutTarget, setCheckoutTarget] = useState(null);
+
+  const pickupOnly =
+    checkoutTarget?.type === 'order'
+      ? (cart.orders.find((order) => order.id === checkoutTarget.orderId)?.requiresPickup ?? false)
+      : checkoutTarget?.type === 'all'
+        ? cart.requiresPickup
+        : false;
 
   async function handleCheckoutSubmit(details) {
     const success =
@@ -48,30 +54,6 @@ function CartDrawerContent() {
         </button>
       </div>
 
-      {placedOrders.length > 0 && (
-        <div className="order-history">
-          <h3 className="order-history-title">Order history</h3>
-          {placedOrders.map((order) => (
-            <div key={order.orderId} className="receipt-order">
-              <p className="receipt-order-title">
-                <span className="order-id">#{order.orderId}</span>
-              </p>
-              <ul className="cart-list">
-                {order.items.map((item) => (
-                  <li key={item.id}>
-                    <span>
-                      {item.flavor} ({item.sizeLabel}) × {item.qty}
-                    </span>
-                    <span>${(item.price * item.qty).toFixed(2)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
       <Mascot className="cart-mascot" />
 
       {checkoutTarget ? (
@@ -80,6 +62,7 @@ function CartDrawerContent() {
           onCancel={() => setCheckoutTarget(null)}
           submitting={checkingOut}
           error={checkoutError}
+          pickupOnly={pickupOnly}
         />
       ) : (
         <>

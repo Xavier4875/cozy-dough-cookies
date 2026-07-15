@@ -3,10 +3,10 @@ import './CheckoutForm.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function CheckoutForm({ onSubmit, onCancel, submitting, error }) {
-  const [name, setName] = useState('');
+function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [method, setMethod] = useState('pickup');
   const [shippingAddress, setShippingAddress] = useState('');
   const [formError, setFormError] = useState('');
@@ -14,18 +14,22 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error }) {
   function handleSubmit(e) {
     e.preventDefault();
 
-    if (!name.trim()) return setFormError('Name is required.');
+    if (!firstName.trim()) return setFormError('First name is required.');
+    if (!lastName.trim()) return setFormError('Last name is required.');
     if (!EMAIL_RE.test(email.trim())) return setFormError('A valid email is required.');
-    if (!phone.trim()) return setFormError('Phone number is required.');
-    if (method === 'shipping' && !shippingAddress.trim()) {
+    if (!pickupOnly && method === 'shipping' && !shippingAddress.trim()) {
       return setFormError('Shipping address is required for shipping orders.');
     }
 
     setFormError('');
     onSubmit({
-      contact: { name: name.trim(), email: email.trim(), phone: phone.trim() },
+      contact: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+      },
       fulfillment:
-        method === 'shipping'
+        !pickupOnly && method === 'shipping'
           ? { method: 'shipping', shippingAddress: shippingAddress.trim() }
           : { method: 'pickup' },
     });
@@ -36,12 +40,22 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error }) {
       <h3 className="cart-section-title">Contact &amp; fulfillment</h3>
 
       <label className="checkout-form-field">
-        <span>Name</span>
+        <span>First name</span>
         <input
           type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoComplete="name"
+          value={firstName}
+          onChange={(e) => setFirstName(e.target.value)}
+          autoComplete="given-name"
+        />
+      </label>
+
+      <label className="checkout-form-field">
+        <span>Last name</span>
+        <input
+          type="text"
+          value={lastName}
+          onChange={(e) => setLastName(e.target.value)}
+          autoComplete="family-name"
         />
       </label>
 
@@ -55,43 +69,40 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error }) {
         />
       </label>
 
-      <label className="checkout-form-field">
-        <span>Phone</span>
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          autoComplete="tel"
-        />
-      </label>
-
       <div className="checkout-form-field">
         <span>Fulfillment</span>
-        <div className="checkout-form-radios">
-          <label>
-            <input
-              type="radio"
-              name="fulfillment-method"
-              value="pickup"
-              checked={method === 'pickup'}
-              onChange={() => setMethod('pickup')}
-            />
-            Pickup
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="fulfillment-method"
-              value="shipping"
-              checked={method === 'shipping'}
-              onChange={() => setMethod('shipping')}
-            />
-            Shipping
-          </label>
-        </div>
+        {pickupOnly ? (
+          <p className="checkout-form-note">
+            Pickup only — this order contains temperature-controlled items that can&apos;t be
+            shipped.
+          </p>
+        ) : (
+          <div className="checkout-form-radios">
+            <label>
+              <input
+                type="radio"
+                name="fulfillment-method"
+                value="pickup"
+                checked={method === 'pickup'}
+                onChange={() => setMethod('pickup')}
+              />
+              Pickup
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="fulfillment-method"
+                value="shipping"
+                checked={method === 'shipping'}
+                onChange={() => setMethod('shipping')}
+              />
+              Shipping
+            </label>
+          </div>
+        )}
       </div>
 
-      {method === 'shipping' && (
+      {!pickupOnly && method === 'shipping' && (
         <label className="checkout-form-field">
           <span>Shipping address</span>
           <textarea

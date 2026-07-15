@@ -24,6 +24,11 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
   }
 
+  // Shipping isn't available when any item needs refrigeration.
+  get requiresPickup() {
+    return this.items.some((item) => item.cookie.is_temperature_controlled);
+  }
+
   toJSON() {
     return {
       orderId: this.id,
@@ -33,6 +38,7 @@ export class Order {
         flavor: item.cookie.flavor,
         sizeLabel: item.cookie.sizeLabel,
         price: item.cookie.price,
+        is_temperature_controlled: item.cookie.is_temperature_controlled,
         qty: item.qty,
       })),
       total: this.total,

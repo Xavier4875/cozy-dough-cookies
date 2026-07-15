@@ -37,6 +37,14 @@ const SIZE_LABELS = {
   full_dozen: 'Full Dozen',
 };
 
+// These flavors contain dairy/fresh fillings that need refrigeration, so they
+// can only be picked up, never shipped.
+const TEMPERATURE_CONTROLLED_FLAVORS = new Set([
+  'Strawberry Cheesecake',
+  'Strawberry-Blueberry-Cheesecake Sandwich',
+  'Oatmeal Cream Pie',
+]);
+
 export class Cookie {
   static TYPES = TYPES;
 
@@ -57,6 +65,7 @@ export class Cookie {
     this.id = String(Cookie.#nextId++);
     this.type = type;
     this.flavor = flavor;
+    this.is_temperature_controlled = TEMPERATURE_CONTROLLED_FLAVORS.has(flavor);
 
     this.is_single = false;
     this.is_half_dozen = false;
@@ -90,6 +99,7 @@ export class Cookie {
       id: this.id,
       type: this.type,
       flavor: this.flavor,
+      is_temperature_controlled: this.is_temperature_controlled,
       is_single: this.is_single,
       is_half_dozen: this.is_half_dozen,
       is_full_dozen: this.is_full_dozen,

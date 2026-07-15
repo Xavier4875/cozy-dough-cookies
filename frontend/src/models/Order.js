@@ -56,6 +56,11 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.qty, 0);
   }
 
+  // Shipping isn't available when any item needs refrigeration.
+  get requiresPickup() {
+    return this.items.some((item) => item.cookie.is_temperature_controlled);
+  }
+
   toCheckoutPayload() {
     return { items: this.items.map((item) => ({ id: item.cookie.id, qty: item.qty })) };
   }

@@ -36,6 +36,10 @@ export class Cart {
     return this.orders.every((order) => order.isEmpty);
   }
 
+  get requiresPickup() {
+    return this.orders.some((order) => order.requiresPickup);
+  }
+
   toCheckoutPayload() {
     return {
       orders: this.orders.filter((order) => !order.isEmpty).map((order) => order.toCheckoutPayload()),

@@ -16,10 +16,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateContact(contact) {
   if (!contact || typeof contact !== 'object') return 'Contact information is required.';
-  const { name, email, phone } = contact;
-  if (!name || !String(name).trim()) return 'Name is required.';
+  const { firstName, lastName, email} = contact;
+  if (!firstName || !String(firstName).trim()) return 'First name is required.';
+  if (!lastName || !String(lastName).trim()) return 'Last name is required.';
   if (!email || !EMAIL_RE.test(String(email).trim())) return 'A valid email is required.';
-  if (!phone || !String(phone).trim()) return 'Phone number is required.';
   return null;
 }
 
@@ -88,9 +88,9 @@ app.post('/api/checkout', async (req, res) => {
   }
 
   const contact = {
-    name: String(req.body.contact.name).trim(),
+    firstName: String(req.body.contact.firstName).trim(),
+    lastName: String(req.body.contact.lastName).trim(),
     email: String(req.body.contact.email).trim(),
-    phone: String(req.body.contact.phone).trim(),
   };
   const fulfillment =
     req.body.fulfillment.method === 'shipping'
@@ -117,6 +117,12 @@ app.post('/api/checkout', async (req, res) => {
       order.addCookie(cookie, qty);
     }
     cart.addOrder(order);
+  }
+
+  if (fulfillment.method === 'shipping' && cart.orders.some((order) => order.requiresPickup)) {
+    return res.status(400).json({
+      error: 'This order contains temperature-controlled items that can only be picked up, not shipped.',
+    });
   }
 
   try {

@@ -33,6 +33,12 @@
   outline-offset: 1px;
 }
 
+.checkout-form-note {
+  margin: 0;
+  font-weight: 400;
+  color: #6b7280;
+}
+
 .checkout-form-radios {
   display: flex;
   gap: 1.25rem;
