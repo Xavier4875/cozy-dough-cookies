@@ -1,18 +1,20 @@
 import { useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useCart } from '../context/useCart.js';
+import { useAuth } from '../context/useAuth.js';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import './NavBar.css';
 
 const TABS = [
-  { to: '/', label: 'Home', end: true },
-  { to: '/menu', label: 'Menu' },
-  { to: '/policy', label: 'Pickup/Delivery Policy' },
-  { to: '/nutrition', label: 'Nutrition' },
+  { to: '/', label: 'Home', icon: '🏠', end: true },
+  { to: '/menu', label: 'Menu', icon: '🍪' },
+  { to: '/policy', label: 'Policy', icon: '🚚' },
+  { to: '/nutrition', label: 'Nutrition', icon: '🥛' },
 ];
 
 function NavBar() {
   const { cart, toggleCart } = useCart();
+  const { isAuthenticated, toggleAccount } = useAuth();
   const cartCount = cart.orderCount;
   const navRef = useRef(null);
 
@@ -24,7 +26,24 @@ function NavBar() {
 
   return (
     <header className="navbar" ref={navRef}>
-      <div className="navbar-brand">Cozy Dough Cookies</div>
+      <div className="navbar-left">
+        <div className="navbar-auth">
+          {isAuthenticated ? (
+            <button
+              className="account-icon-btn"
+              onClick={toggleAccount}
+              aria-label="Open account menu"
+            >
+              👤
+            </button>
+          ) : (
+            <NavLink to="/sign-in" className="navbar-auth-btn">
+              Sign In
+            </NavLink>
+          )}
+        </div>
+        <div className="navbar-brand">Cozy Dough Cookies</div>
+      </div>
       <nav className="navbar-tabs">
         {TABS.map((tab) => (
           <NavLink
@@ -35,7 +54,10 @@ function NavBar() {
               'navbar-tab' + (isActive ? ' navbar-tab--active' : '')
             }
           >
-            {tab.label}
+            <span className="navbar-tab-icon" aria-hidden="true">
+              {tab.icon}
+            </span>
+            <span className="navbar-tab-label">{tab.label}</span>
           </NavLink>
         ))}
       </nav>

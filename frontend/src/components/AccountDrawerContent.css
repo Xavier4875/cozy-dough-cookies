@@ -1,0 +1,37 @@
+.account-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.account-drawer-header h2 {
+  margin: 0;
+}
+
+.account-drawer-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #3d2b1f;
+  line-height: 1;
+}
+
+.account-drawer-nav {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.account-drawer-link {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid #eee;
+  color: #3d2b1f;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.account-drawer-link--danger {
+  color: #c62828;
+}

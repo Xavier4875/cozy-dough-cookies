@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient } from './client.js';
 import { ORDERS_TABLE } from './schema.js';
 
@@ -20,4 +20,17 @@ export async function getOrderById(orderId) {
     })
   );
   return Item ?? null;
+}
+
+export async function queryOrdersByCustomerId(customerId) {
+  const { Items } = await docClient.send(
+    new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'customerId-createdAt-index',
+      KeyConditionExpression: 'customerId = :customerId',
+      ExpressionAttributeValues: { ':customerId': customerId },
+      ScanIndexForward: false,
+    })
+  );
+  return Items ?? [];
 }

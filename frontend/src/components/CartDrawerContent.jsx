@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useCart } from '../context/useCart.js';
+import { useAuth } from '../context/useAuth.js';
 import Mascot from './Mascot.jsx';
 import CheckoutForm from './CheckoutForm.jsx';
 import './CartDrawerContent.css';
@@ -14,11 +15,15 @@ function CartDrawerContent() {
     activeOrderId,
     switchActiveOrder,
     removeOrder,
+    removeCookieFromOrder,
     checkingOut,
     checkoutError,
     checkoutOrder,
     checkoutAll,
+    orderHistory,
+    orderHistoryLoading,
   } = useCart();
+  const { isAuthenticated } = useAuth();
 
   // { type: 'order', orderId } | { type: 'all' } | null — while set, the
   // contact/fulfillment form replaces the order list/checkout buttons below
@@ -53,6 +58,36 @@ function CartDrawerContent() {
           ×
         </button>
       </div>
+
+      {isAuthenticated && (
+        <div className="order-history">
+          <h3 className="order-history-title">Order history</h3>
+          {orderHistoryLoading ? (
+            <p className="empty-cart">Loading...</p>
+          ) : orderHistory.length === 0 ? (
+            <p className="empty-cart">No past orders yet.</p>
+          ) : (
+            orderHistory.map((order) => (
+              <div key={order.orderId} className="receipt-order">
+                <p className="receipt-order-title">
+                  <span className="order-id">#{order.orderId}</span> — {order.status}
+                </p>
+                <ul className="cart-list">
+                  {order.items.map((item) => (
+                    <li key={item.id}>
+                      <span>
+                        {item.flavor} ({item.sizeLabel}) × {item.qty}
+                      </span>
+                      <span>${(item.price * item.qty).toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <Mascot className="cart-mascot" />
 
@@ -102,6 +137,15 @@ function CartDrawerContent() {
                         <li key={item.cookie.id}>
                           <span>
                             {item.cookie.flavor} ({item.cookie.sizeLabel}) × {item.qty}
+                            {item.cookie.isReward && (
+                              <button
+                                className="remove-btn reward-remove-btn"
+                                onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
+                                aria-label={`Remove ${item.cookie.flavor} reward`}
+                              >
+                                ×
+                              </button>
+                            )}
                           </span>
                           <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
                         </li>

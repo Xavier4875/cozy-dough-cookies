@@ -1,0 +1,105 @@
+.rewards-page > * {
+  margin-bottom: 1.25rem;
+}
+
+.rewards-signin-note {
+  text-align: center;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.rewards-balance-header {
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+.rewards-balance-large {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: #3d2b1f;
+}
+
+.rewards-balance-sticky {
+  position: sticky;
+  top: var(--navbar-height, 64px);
+  z-index: 5;
+  padding: 0.5rem 0;
+  margin-bottom: 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #3d2b1f;
+}
+
+.rewards-tier {
+  margin-bottom: 2.5rem;
+}
+
+.rewards-tier-title {
+  margin: 0 0 1rem;
+  font-size: 1.3rem;
+  border-bottom: 2px solid #3d2b1f;
+  padding-bottom: 0.4rem;
+}
+
+.rewards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1.25rem;
+}
+
+.reward-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.reward-label {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.reward-points {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.reward-temp-note {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1565c0;
+}
+
+.reward-redeem-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.reward-redeem-btn:hover:not(:disabled) {
+  background: #1b5e20;
+}
+
+.reward-redeem-btn:disabled {
+  background: #b3a394;
+  cursor: not-allowed;
+}
+
+.reward-redeem-btn--redeemed:disabled {
+  background: #d8c3a5;
+  color: #3d2b1f;
+  cursor: default;
+}

@@ -92,6 +92,37 @@
   letter-spacing: 0.03em;
 }
 
+.order-history {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed #d8c3a5;
+}
+
+.order-history-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.receipt-order {
+  margin-bottom: 1rem;
+}
+
+.receipt-order-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.reward-remove-btn {
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: 0.75rem;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
 .cart-mascot {
   display: block;
   margin: 0 auto 1rem;

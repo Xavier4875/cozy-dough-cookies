@@ -1,0 +1,45 @@
+/* Shared by SignIn.jsx and SignUp.jsx — same form, same palette as
+   CheckoutForm.css, just under a different (non-cart) class prefix since
+   these pages aren't part of the cart/checkout flow. */
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 22rem;
+}
+
+.auth-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #3d2b1f;
+  font-weight: 600;
+}
+
+.auth-form-field input {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+}
+
+.auth-form-field input:focus {
+  outline: 2px solid #3d2b1f;
+  outline-offset: 1px;
+}
+
+.auth-form-note {
+  margin: 0;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.auth-form-link {
+  font-size: 0.9rem;
+  color: #3d2b1f;
+}

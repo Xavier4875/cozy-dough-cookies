@@ -1,7 +1,7 @@
 .navbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
   padding: 1rem 1.5rem;
   background: #fff;
@@ -9,6 +9,14 @@
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-self: start;
+  min-width: 0;
 }
 
 .navbar-brand {
@@ -20,17 +28,27 @@
 
 .navbar-tabs {
   display: flex;
-  gap: 1.5rem;
+  gap: 2.25rem;
   flex-wrap: wrap;
+  justify-self: center;
 }
 
 .navbar-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
   color: #6b7280;
   text-decoration: none;
   font-size: 0.95rem;
   padding-bottom: 0.25rem;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
+}
+
+.navbar-tab-icon {
+  font-size: 1.6rem;
+  line-height: 1;
 }
 
 .navbar-tab:hover {
@@ -43,6 +61,37 @@
   font-weight: 600;
 }
 
+.navbar-auth {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.account-icon-btn {
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+
+.navbar-auth-btn {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.navbar-auth-btn:hover {
+  color: #3d2b1f;
+}
+
 .cart-icon-btn {
   position: relative;
   border: none;
@@ -51,6 +100,7 @@
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   line-height: 1;
+  justify-self: end;
 }
 
 .cart-badge {

@@ -2,13 +2,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 1rem 1.5rem;
   background: #fff;
   border-bottom: 1px solid #eee;
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.mobile-topbar .navbar-auth {
+  font-size: 0.8rem;
 }
 
 .mobile-tabbar {

@@ -62,6 +62,19 @@ export class Order {
   }
 
   toCheckoutPayload() {
-    return { items: this.items.map((item) => ({ id: item.cookie.id, qty: item.qty })) };
+    // Reward items carry no price the server should trust — only the key is
+    // sent, and it's repeated once per qty (redeeming the same reward twice
+    // is two occurrences, not one entry with a count), matching how the
+    // backend resolves and re-adds each redemption individually.
+    const items = [];
+    const redemptions = [];
+    for (const item of this.items) {
+      if (item.cookie.isReward) {
+        for (let i = 0; i < item.qty; i++) redemptions.push(item.cookie.rewardKey);
+      } else {
+        items.push({ id: item.cookie.id, qty: item.qty });
+      }
+    }
+    return { items, redemptions };
   }
 }
