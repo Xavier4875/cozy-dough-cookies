@@ -33,6 +33,16 @@
   outline-offset: 1px;
 }
 
+.required-mark {
+  color: #c62828;
+}
+
+.required-note {
+  margin: -0.5rem 0 0.5rem;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
 .auth-form-note {
   margin: 0;
   font-weight: 400;
@@ -42,4 +52,21 @@
 .auth-form-link {
   font-size: 0.9rem;
   color: #3d2b1f;
+}
+
+.auth-form-resend {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: #3d2b1f;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.auth-form-resend:disabled {
+  color: #b3a394;
+  cursor: not-allowed;
 }

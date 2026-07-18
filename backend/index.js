@@ -16,8 +16,9 @@ import {
   getCustomerById,
   addRewardsPoints,
   redeemRewardsPoints,
+  deleteCustomer,
 } from './db/customersRepo.js';
-import { optionalAuth, requireAuth } from './middleware/auth.js';
+import { optionalAuth, requireAuth, requireActiveCustomer } from './middleware/auth.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -93,6 +94,17 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
 
   if (requestedOrders.length === 0) {
     return res.status(400).json({ error: 'Cart has no orders.' });
+  }
+
+  // A token can stay cryptographically valid for its full lifetime even
+  // after the account behind it is deleted (deleting a Cognito user doesn't
+  // revoke tokens already issued to it) — so a stale second tab could
+  // otherwise still have orders attributed to, and earn/redeem points on, a
+  // customerId that no longer resolves to anyone. Downgrade silently to
+  // guest checkout rather than erroring, the same as an actually-unauthenticated
+  // request — checkout already fully supports that path.
+  if (req.user && !(await getCustomerById(req.user.customerId))) {
+    req.user = null;
   }
 
   const contactError = validateContact(req.body.contact);
@@ -258,7 +270,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
 // Returns the signed-in customer's own order history, newest first.
 // Registered before /api/orders/:id — Express matches routes in
 // registration order, and :id would otherwise swallow "mine" as an id.
-app.get('/api/orders/mine', requireAuth, async (req, res) => {
+app.get('/api/orders/mine', requireAuth, requireActiveCustomer, async (req, res) => {
   try {
     const orders = await queryOrdersByCustomerId(req.user.customerId);
     res.json({ orders });
@@ -271,7 +283,7 @@ app.get('/api/orders/mine', requireAuth, async (req, res) => {
 // Requires auth: a customer may only fetch their own orders, staff may
 // fetch any. Guest orders have no customerId to match against, so they're
 // only reachable by staff through this endpoint.
-app.get('/api/orders/:id', requireAuth, async (req, res) => {
+app.get('/api/orders/:id', requireAuth, requireActiveCustomer, async (req, res) => {
   try {
     const order = await getOrderById(req.params.id);
     if (!order) {
@@ -325,6 +337,20 @@ app.get('/api/customers/me', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Failed to fetch customer:', err);
     res.status(500).json({ error: 'Failed to fetch customer.' });
+  }
+});
+
+// Deletes only our own record — the frontend calls this while its session is
+// still valid, then separately deletes the Cognito identity itself (that
+// step has to come second: once the Cognito user is gone, its token can no
+// longer authenticate this request at all).
+app.delete('/api/customers/me', requireAuth, async (req, res) => {
+  try {
+    await deleteCustomer(req.user.customerId);
+    res.json({ message: 'Account data deleted.' });
+  } catch (err) {
+    console.error('Failed to delete customer:', err);
+    res.status(500).json({ error: 'Failed to delete account.' });
   }
 });
 

@@ -1,0 +1,99 @@
+.delete-account-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.delete-account-modal {
+  width: min(420px, 100%);
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 1.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+  animation: delete-account-pop-in 0.15s ease-out;
+}
+
+@keyframes delete-account-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.delete-account-modal h2 {
+  margin: 0 0 0.75rem;
+  color: #3d2b1f;
+}
+
+.delete-account-modal p {
+  margin: 0 0 1rem;
+  color: #3d2b1f;
+}
+
+.delete-account-input {
+  width: 100%;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+  box-sizing: border-box;
+  margin-bottom: 0.5rem;
+}
+
+.delete-account-input:focus {
+  outline: 2px solid #c62828;
+  outline-offset: 1px;
+}
+
+.delete-account-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.delete-account-cancel-btn {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.delete-account-cancel-btn:hover {
+  color: #3d2b1f;
+}
+
+.delete-account-confirm-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  background: #c62828;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.delete-account-confirm-btn:hover:not(:disabled) {
+  background: #8e0000;
+}
+
+.delete-account-confirm-btn:disabled {
+  background: #b3a394;
+  cursor: not-allowed;
+}

@@ -3,6 +3,7 @@ const TYPES = {
     prices: { single: 2.0, half_dozen: 9.0, full_dozen: 18.0 },
     flavors: [
       'Chocolate Chip',
+      'M&M',
       'Monster',
       'Butter',
       'Peanut Butter',

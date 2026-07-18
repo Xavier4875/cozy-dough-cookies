@@ -1,4 +1,4 @@
-import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient } from './client.js';
 import { CUSTOMERS_TABLE } from './schema.js';
 
@@ -29,14 +29,20 @@ export async function upsertCustomer({ customerId, email, firstName, lastName, r
   return Attributes;
 }
 
-// Atomic increment — ADD treats a missing attribute as 0, so this is safe
-// even if the row somehow predates the rewards field.
+// Atomic increment — ADD treats a missing *attribute* as 0 (safe if the row
+// somehow predates the rewards field), but a plain ADD also treats a missing
+// *item* as an upsert, which would otherwise silently resurrect a deleted
+// customer's row with nothing but a customerId and a rewards balance.
+// attribute_exists guards against that: it fails loudly (caller already
+// handles a thrown error as a non-fatal "earn" failure) instead of quietly
+// recreating an account the user explicitly deleted.
 export async function addRewardsPoints(customerId, points) {
   const { Attributes } = await docClient.send(
     new UpdateCommand({
       TableName: CUSTOMERS_TABLE,
       Key: { customerId },
       UpdateExpression: 'ADD rewards :points',
+      ConditionExpression: 'attribute_exists(customerId)',
       ExpressionAttributeValues: { ':points': points },
       ReturnValues: 'ALL_NEW',
     })
@@ -67,6 +73,21 @@ export async function redeemRewardsPoints(customerId, points) {
     if (err.name === 'ConditionalCheckFailedException') return null;
     throw err;
   }
+}
+
+// The Cognito identity itself is deleted separately (client-side, via the
+// authenticated session's own deleteUser() call) — this only forgets our
+// DynamoDB row (profile + rewards balance). Past order records are left
+// alone (a real business keeps its transaction history); once both this row
+// and the Cognito account are gone, that customerId no longer resolves to
+// anyone, so those orders become as unreachable as a guest's always were.
+export async function deleteCustomer(customerId) {
+  await docClient.send(
+    new DeleteCommand({
+      TableName: CUSTOMERS_TABLE,
+      Key: { customerId },
+    })
+  );
 }
 
 export async function getCustomerById(customerId) {

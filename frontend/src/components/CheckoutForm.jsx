@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useAuth } from '../context/useAuth.js';
 import './CheckoutForm.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly }) {
+  const { isAuthenticated, user } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -14,20 +16,22 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly }) {
   function handleSubmit(e) {
     e.preventDefault();
 
-    if (!firstName.trim()) return setFormError('First name is required.');
-    if (!lastName.trim()) return setFormError('Last name is required.');
-    if (!EMAIL_RE.test(email.trim())) return setFormError('A valid email is required.');
+    // Signed-in customers already have this on file (from the Cognito
+    // token) — only guests, who have no stored account, need to type it in.
+    if (!isAuthenticated) {
+      if (!firstName.trim()) return setFormError('First name is required.');
+      if (!lastName.trim()) return setFormError('Last name is required.');
+      if (!EMAIL_RE.test(email.trim())) return setFormError('A valid email is required.');
+    }
     if (!pickupOnly && method === 'shipping' && !shippingAddress.trim()) {
       return setFormError('Shipping address is required for shipping orders.');
     }
 
     setFormError('');
     onSubmit({
-      contact: {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
-      },
+      contact: isAuthenticated
+        ? { firstName: user.firstName, lastName: user.lastName, email: user.email }
+        : { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim() },
       fulfillment:
         !pickupOnly && method === 'shipping'
           ? { method: 'shipping', shippingAddress: shippingAddress.trim() }
@@ -39,35 +43,39 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly }) {
     <form className="checkout-form" onSubmit={handleSubmit}>
       <h3 className="cart-section-title">Contact &amp; fulfillment</h3>
 
-      <label className="checkout-form-field">
-        <span>First name</span>
-        <input
-          type="text"
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-          autoComplete="given-name"
-        />
-      </label>
+      {!isAuthenticated && (
+        <>
+          <label className="checkout-form-field">
+            <span>First name</span>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+            />
+          </label>
 
-      <label className="checkout-form-field">
-        <span>Last name</span>
-        <input
-          type="text"
-          value={lastName}
-          onChange={(e) => setLastName(e.target.value)}
-          autoComplete="family-name"
-        />
-      </label>
+          <label className="checkout-form-field">
+            <span>Last name</span>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              autoComplete="family-name"
+            />
+          </label>
 
-      <label className="checkout-form-field">
-        <span>Email</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
-        />
-      </label>
+          <label className="checkout-form-field">
+            <span>Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+          </label>
+        </>
+      )}
 
       <div className="checkout-form-field">
         <span>Fulfillment</span>

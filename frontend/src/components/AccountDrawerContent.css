@@ -35,3 +35,12 @@
 .account-drawer-link--danger {
   color: #c62828;
 }
+
+.account-drawer-link--button {
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}

@@ -1,16 +1,38 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
 import './AuthForm.css';
 
+const PENDING_EMAIL_KEY = 'pendingSignupEmail';
+
 function SignIn() {
-  const { signIn, getIdToken, error } = useAuth();
+  const { signIn, getIdToken, resendConfirmationCode, error, errorCode } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState(location.state?.email ?? '');
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState('');
+  const [formNote, setFormNote] = useState(
+    location.state?.justConfirmed ? 'Account confirmed! Sign in below.' : ''
+  );
   const [submitting, setSubmitting] = useState(false);
+
+  // Signing in to an account that was signed up but never had its emailed
+  // code entered fails with "not confirmed" — recover instead of
+  // dead-ending there: resend the code and send them back to the signup
+  // page's confirm step (which restores from the same pending-signup key
+  // this sets, whether or not this tab is the one that started the signup).
+  async function handleResendAndConfirm() {
+    setFormError('');
+    setSubmitting(true);
+    const resent = await resendConfirmationCode(email.trim());
+    setSubmitting(false);
+    if (resent) {
+      localStorage.setItem(PENDING_EMAIL_KEY, email.trim());
+      navigate('/sign-up');
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -18,6 +40,7 @@ function SignIn() {
     if (!password) return setFormError('Password is required.');
 
     setFormError('');
+    setFormNote('');
     setSubmitting(true);
     const ok = await signIn(email.trim(), password);
     if (!ok) {
@@ -68,7 +91,18 @@ function SignIn() {
           />
         </label>
 
+        {formNote && <p className="auth-form-note">{formNote}</p>}
         {(formError || error) && <p className="checkout-error">{formError || error}</p>}
+        {errorCode === 'UserNotConfirmedException' && (
+          <button
+            type="button"
+            className="auth-form-resend"
+            onClick={handleResendAndConfirm}
+            disabled={submitting}
+          >
+            Resend confirmation code
+          </button>
+        )}
 
         <button type="submit" className="checkout-btn" disabled={submitting}>
           {submitting ? 'Signing in...' : 'Sign In'}

@@ -1,4 +1,5 @@
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { getCustomerById } from '../db/customersRepo.js';
 
 let verifier = null;
 
@@ -54,5 +55,22 @@ export async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Sign-in required.' });
   }
   req.user = user;
+  next();
+}
+
+// A Cognito ID token stays cryptographically valid for its full lifetime
+// even after the account behind it is deleted — deleting a user doesn't
+// revoke tokens already issued to it. So a second tab that was signed in
+// before the account was deleted elsewhere would otherwise keep passing
+// requireAuth indefinitely. This closes that gap by checking our own
+// Customers row still exists. Must run after requireAuth. Deliberately not
+// applied to /api/customers/sync, whose entire job is to create this row
+// when it doesn't exist yet — requiring it there would make sync unable to
+// ever run for a brand-new account.
+export async function requireActiveCustomer(req, res, next) {
+  const customer = await getCustomerById(req.user.customerId);
+  if (!customer) {
+    return res.status(401).json({ error: 'This account no longer exists. Please sign in again.' });
+  }
   next();
 }

@@ -29,7 +29,13 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // The Cognito exception name (e.g. "UsernameExistsException",
+  // "UserNotConfirmedException") behind the current `error` message, if any
+  // — kept separate so callers can branch on a stable machine-readable value
+  // instead of matching against message text.
+  const [errorCode, setErrorCode] = useState('');
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
 
   // Cognito's SDK persists tokens in its own localStorage keys, so restoring
   // an existing session on mount needs no hand-rolled token storage.
@@ -49,11 +55,18 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
+  // Resolves { ok, code } rather than a plain boolean — unlike the other
+  // auth actions, a caller here (SignUp's handleRegister) needs to branch
+  // immediately on *which* error happened, right after the await. Reading
+  // the reactive errorCode state at that point would see whatever it was
+  // before this call started, not the value this call just set — state
+  // updates don't retroactively change a closure already in flight.
   function signUp(email, password, firstName, lastName) {
     setError('');
+    setErrorCode('');
     if (!userPool) {
       setError(NOT_CONFIGURED_ERROR);
-      return Promise.resolve(false);
+      return Promise.resolve({ ok: false, code: '' });
     }
     return new Promise((resolve) => {
       userPool.signUp(
@@ -67,10 +80,11 @@ export function AuthProvider({ children }) {
         (err) => {
           if (err) {
             setError(err.message);
-            resolve(false);
+            setErrorCode(err.code || '');
+            resolve({ ok: false, code: err.code || '' });
             return;
           }
-          resolve(true);
+          resolve({ ok: true });
         }
       );
     });
@@ -78,6 +92,7 @@ export function AuthProvider({ children }) {
 
   function confirmSignUp(email, code) {
     setError('');
+    setErrorCode('');
     if (!userPool) {
       setError(NOT_CONFIGURED_ERROR);
       return Promise.resolve(false);
@@ -87,6 +102,32 @@ export function AuthProvider({ children }) {
       cognitoUser.confirmRegistration(code, true, (err) => {
         if (err) {
           setError(err.message);
+          setErrorCode(err.code || '');
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
+  // Cognito resends the same signup confirmation code by re-issuing it to
+  // the account's email — this is what lets someone recover a pending
+  // (signed-up-but-unconfirmed) account without hitting the "user already
+  // exists" wall a second signUp() call would raise.
+  function resendConfirmationCode(email) {
+    setError('');
+    setErrorCode('');
+    if (!userPool) {
+      setError(NOT_CONFIGURED_ERROR);
+      return Promise.resolve(false);
+    }
+    const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+    return new Promise((resolve) => {
+      cognitoUser.resendConfirmationCode((err) => {
+        if (err) {
+          setError(err.message);
+          setErrorCode(err.code || '');
           resolve(false);
           return;
         }
@@ -97,6 +138,7 @@ export function AuthProvider({ children }) {
 
   function signIn(email, password) {
     setError('');
+    setErrorCode('');
     if (!userPool) {
       setError(NOT_CONFIGURED_ERROR);
       return Promise.resolve(false);
@@ -111,6 +153,7 @@ export function AuthProvider({ children }) {
         },
         onFailure: (err) => {
           setError(err.message);
+          setErrorCode(err.code || '');
           resolve(false);
         },
       });
@@ -122,6 +165,57 @@ export function AuthProvider({ children }) {
     userPool?.getCurrentUser()?.signOut();
     setUser(null);
     setIsAccountOpen(false);
+  }
+
+  // Deletes the DynamoDB profile/rewards row first, while the session is
+  // still valid enough to authenticate that request, then deletes the
+  // Cognito identity itself — in that order, since the reverse would leave
+  // an authenticated request with no Cognito user left to authenticate it.
+  // amazon-cognito-identity-js's deleteUser() removes the signed-in user's
+  // own account directly, no admin credentials needed. Local sign-out is
+  // unconditional once the DynamoDB delete succeeds (see below) — that step
+  // is the irreversible one, so the UI must reflect "signed out" regardless
+  // of whether the follow-up Cognito call also succeeds.
+  function deleteAccount() {
+    setError('');
+    const current = userPool?.getCurrentUser();
+    if (!current) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      current.getSession(async (err, session) => {
+        if (err || !session?.isValid()) {
+          setError('Your session has expired. Please sign in again.');
+          resolve(false);
+          return;
+        }
+        try {
+          const res = await fetch('/api/customers/me', {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${session.getIdToken().getJwtToken()}` },
+          });
+          if (!res.ok) throw new Error();
+        } catch {
+          setError('Failed to delete account. Please try again.');
+          resolve(false);
+          return;
+        }
+
+        // From here on the account's data is already permanently gone — sign
+        // the user out locally no matter what happens next. deleteUser() is
+        // best-effort cleanup of the Cognito identity itself; if it errors
+        // (e.g. a second tab racing the same deletion, or any other Cognito
+        // hiccup) that's no reason to leave the UI pretending they're still
+        // signed in to an account with nothing behind it.
+        current.deleteUser((deleteErr) => {
+          if (deleteErr) {
+            console.error('Cognito deleteUser failed after account data was already removed:', deleteErr);
+          }
+          setUser(null);
+          setIsAccountOpen(false);
+          setIsDeleteAccountOpen(false);
+          resolve(true);
+        });
+      });
+    });
   }
 
   // Resolved at call time rather than cached in state: getSession()
@@ -143,8 +237,10 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!user,
     loading,
     error,
+    errorCode,
     signUp,
     confirmSignUp,
+    resendConfirmationCode,
     signIn,
     signOut,
     getIdToken,
@@ -152,6 +248,10 @@ export function AuthProvider({ children }) {
     openAccount: () => setIsAccountOpen(true),
     closeAccount: () => setIsAccountOpen(false),
     toggleAccount: () => setIsAccountOpen((prev) => !prev),
+    isDeleteAccountOpen,
+    openDeleteAccount: () => setIsDeleteAccountOpen(true),
+    closeDeleteAccount: () => setIsDeleteAccountOpen(false),
+    deleteAccount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

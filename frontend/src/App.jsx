@@ -5,12 +5,14 @@ import CartDrawer from './components/CartDrawer.jsx';
 import MobileCartDrawer from './components/MobileCartDrawer.jsx';
 import AccountDrawer from './components/AccountDrawer.jsx';
 import MobileAccountDrawer from './components/MobileAccountDrawer.jsx';
+import DeleteAccountModal from './components/DeleteAccountModal.jsx';
 import Home from './pages/Home.jsx';
 import Menu from './pages/Menu.jsx';
 import MobileMenu from './pages/MobileMenu.jsx';
 import Policy from './pages/Policy.jsx';
 import Nutrition from './pages/Nutrition.jsx';
 import Rewards from './pages/Rewards.jsx';
+import OrderHistory from './pages/OrderHistory.jsx';
 import SignIn from './pages/SignIn.jsx';
 import SignUp from './pages/SignUp.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
@@ -29,12 +31,14 @@ function App() {
           <Route path="/policy" element={<Policy />} />
           <Route path="/nutrition" element={<Nutrition />} />
           <Route path="/rewards" element={<Rewards />} />
+          <Route path="/order-history" element={<OrderHistory />} />
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/sign-up" element={<SignUp />} />
         </Routes>
       </main>
       {isMobile ? <MobileCartDrawer /> : <CartDrawer />}
       {isMobile ? <MobileAccountDrawer /> : <AccountDrawer />}
+      <DeleteAccountModal />
     </div>
   );
 }

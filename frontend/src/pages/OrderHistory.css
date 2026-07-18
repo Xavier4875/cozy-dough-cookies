@@ -1,0 +1,18 @@
+.order-history-page > * {
+  margin-bottom: 1.25rem;
+}
+
+.order-history-signin-note {
+  text-align: center;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.receipt-order {
+  margin-bottom: 1rem;
+}
+
+.receipt-order-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}

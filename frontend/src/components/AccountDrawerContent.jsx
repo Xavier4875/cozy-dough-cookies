@@ -7,7 +7,16 @@ import './AccountDrawerContent.css';
 // shells just wrap this in different positioning/animation chrome, same
 // split as CartDrawerContent.
 function AccountDrawerContent() {
-  const { user, closeAccount, signOut } = useAuth();
+  const { user, closeAccount, signOut, openDeleteAccount } = useAuth();
+
+  // Delete confirmation happens in its own centered modal (DeleteAccountModal,
+  // rendered at the App level so it survives this drawer closing) rather than
+  // a page navigation — closing the drawer first avoids both being on screen
+  // at once.
+  function handleDeleteAccountClick() {
+    closeAccount();
+    openDeleteAccount();
+  }
 
   return (
     <>
@@ -26,13 +35,15 @@ function AccountDrawerContent() {
         <Link to="/rewards" className="account-drawer-link" onClick={closeAccount}>
           Rewards
         </Link>
-        <Link
-          to="/delete-account"
-          className="account-drawer-link account-drawer-link--danger"
-          onClick={closeAccount}
+        <Link to="/order-history" className="account-drawer-link" onClick={closeAccount}>
+          Order History
+        </Link>
+        <button
+          className="account-drawer-link account-drawer-link--danger account-drawer-link--button"
+          onClick={handleDeleteAccountClick}
         >
           Delete My Account
-        </Link>
+        </button>
       </nav>
 
       <button className="checkout-btn" onClick={signOut}>
