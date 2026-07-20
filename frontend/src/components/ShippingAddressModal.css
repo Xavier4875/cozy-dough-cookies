@@ -1,0 +1,177 @@
+.shipping-address-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.shipping-address-modal {
+  width: min(440px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 1.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+  animation: shipping-address-pop-in 0.15s ease-out;
+}
+
+@keyframes shipping-address-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shipping-address-modal h2 {
+  margin: 0 0 1rem;
+  color: #3d2b1f;
+}
+
+.shipping-address-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.shipping-address-row {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.shipping-address-row .checkout-form-field {
+  flex: 1;
+}
+
+.shipping-address-order-label {
+  font-weight: 600;
+  color: #3d2b1f;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.shipping-address-subtitle {
+  font-weight: 700;
+  color: #3d2b1f;
+  margin: 1rem 0 0.75rem;
+}
+
+.shipping-address-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.shipping-address-cancel-btn {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.shipping-address-cancel-btn:hover {
+  color: #3d2b1f;
+}
+
+/* .checkout-btn defaults to display:block/width:100% for its usual standalone
+   placement — override to sit inline next to the Cancel/Back button here,
+   same fix CheckoutForm.css and PickupScheduleModal.css already apply. */
+.shipping-address-actions .checkout-btn {
+  display: inline-block;
+  width: auto;
+  margin-top: 0;
+}
+
+.shipping-state-field {
+  position: relative;
+}
+
+.shipping-state-trigger {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.shipping-state-trigger:focus {
+  outline: 2px solid #3d2b1f;
+  outline-offset: 1px;
+}
+
+.shipping-state-placeholder {
+  color: #9a8b7a;
+}
+
+.shipping-state-caret {
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+.shipping-state-list {
+  position: absolute;
+  bottom: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.shipping-state-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  background: none;
+  color: #3d2b1f;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.shipping-state-option:hover {
+  background: #f4e9d8;
+}
+
+.shipping-state-option--selected {
+  background: #3d2b1f;
+  color: #fffaf3;
+  font-weight: 700;
+}
+
+.shipping-state-option--selected:hover {
+  background: #3d2b1f;
+}

@@ -3,14 +3,8 @@ import { NavLink } from 'react-router-dom';
 import { useCart } from '../context/useCart.js';
 import { useAuth } from '../context/useAuth.js';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
+import { NAV_TABS as TABS } from '../constants.js';
 import './NavBar.css';
-
-const TABS = [
-  { to: '/', label: 'Home', icon: '🏠', end: true },
-  { to: '/menu', label: 'Menu', icon: '🍪' },
-  { to: '/policy', label: 'Policy', icon: '🚚' },
-  { to: '/nutrition', label: 'Nutrition', icon: '🥛' },
-];
 
 function NavBar() {
   const { cart, toggleCart } = useCart();

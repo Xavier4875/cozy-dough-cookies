@@ -34,6 +34,15 @@ function CartDrawerContent() {
         ? cart.requiresPickup
         : false;
 
+  // The pickup-scheduling modal's confirm step shows the actual order(s)
+  // being checked out, same order/id-matching logic as pickupOnly above.
+  const checkoutOrders =
+    checkoutTarget?.type === 'order'
+      ? cart.orders.filter((order) => order.id === checkoutTarget.orderId)
+      : checkoutTarget?.type === 'all'
+        ? cart.orders.filter((order) => !order.isEmpty)
+        : [];
+
   async function handleCheckoutSubmit(details) {
     const success =
       checkoutTarget.type === 'order'
@@ -64,6 +73,7 @@ function CartDrawerContent() {
           submitting={checkingOut}
           error={checkoutError}
           pickupOnly={pickupOnly}
+          orders={checkoutOrders}
         />
       ) : (
         <>

@@ -9,10 +9,32 @@
 }
 
 .receipt-order {
-  margin-bottom: 1rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 3px solid #3d2b1f;
+}
+
+.receipt-order:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.receipt-order-date {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #3d2b1f;
 }
 
 .receipt-order-title {
   font-weight: 600;
   margin-bottom: 0.25rem;
+}
+
+.receipt-order-pickup {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
 }

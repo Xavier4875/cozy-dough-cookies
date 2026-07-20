@@ -20,8 +20,20 @@ import {
 } from './db/customersRepo.js';
 import { optionalAuth, requireAuth, requireActiveCustomer } from './middleware/auth.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { validateAddress } from './shipping/usps.js';
+import { enqueue as enqueueAddressRetry } from './shipping/retryQueue.js';
+import { checkIpRateLimit } from './shipping/ipRateLimit.js';
+import {
+  EMAIL_RE,
+  PICKUP_DATE_RE,
+  PICKUP_TIME_RE,
+  PICKUP_OPEN_MINUTES,
+  PICKUP_CLOSE_MINUTES,
+  PICKUP_MIN_NOTICE_MS,
+  STATE_RE,
+  ZIP_RE,
+  UNITS_PER_SIZE,
+} from './constants.js';
 
 function validateContact(contact) {
   if (!contact || typeof contact !== 'object') return 'Contact information is required.';
@@ -32,14 +44,54 @@ function validateContact(contact) {
   return null;
 }
 
+// Format-only checks — not validated against a real list of states/cities/
+// zips. Real address validation is planned for later; this is an accepted
+// interim state.
+
+// No timezone infrastructure exists anywhere in this app (single
+// physical-location shop) — pickupDate/pickupTime are plain wall-clock
+// values, interpreted in whatever local time zone this process runs in, same
+// as the browser interprets them when building the picker. Good enough for a
+// single-timezone business; would need real tz-awareness for multi-location.
 function validateFulfillment(fulfillment) {
   if (!fulfillment || typeof fulfillment !== 'object') return 'Fulfillment method is required.';
-  const { method, shippingAddress } = fulfillment;
+  const { method, shippingAddress, pickupDate, pickupTime } = fulfillment;
   if (method !== 'pickup' && method !== 'shipping') {
     return 'Fulfillment method must be "pickup" or "shipping".';
   }
-  if (method === 'shipping' && (!shippingAddress || !String(shippingAddress).trim())) {
-    return 'Shipping address is required for shipping orders.';
+  if (method === 'shipping') {
+    if (!shippingAddress || typeof shippingAddress !== 'object') {
+      return 'A valid shipping address is required.';
+    }
+    const { line1, city, state, zip } = shippingAddress;
+    if (!line1 || !String(line1).trim()) return 'Street address is required.';
+    if (!city || !String(city).trim()) return 'City is required.';
+    if (!state || !STATE_RE.test(String(state).trim())) return 'State must be a 2-letter abbreviation.';
+    if (!zip || !ZIP_RE.test(String(zip).trim())) return 'A valid ZIP code is required.';
+  }
+  if (method === 'pickup') {
+    if (!pickupDate || !PICKUP_DATE_RE.test(pickupDate)) {
+      return 'A valid pickup date is required.';
+    }
+    if (!pickupTime || !PICKUP_TIME_RE.test(pickupTime)) {
+      return 'Pickup time must be in 15-minute increments.';
+    }
+    const [year, month, day] = pickupDate.split('-').map(Number);
+    const [hour, minute] = pickupTime.split(':').map(Number);
+    const minutesOfDay = hour * 60 + minute;
+    if (minutesOfDay < PICKUP_OPEN_MINUTES || minutesOfDay > PICKUP_CLOSE_MINUTES) {
+      return 'Pickup time must be between 10:00am and 7:00pm.';
+    }
+    const pickupDateTime = new Date(year, month - 1, day, hour, minute);
+    // new Date rolls over out-of-range components (e.g. day 32) instead of
+    // failing, so a mismatched getDate() catches an invalid calendar date
+    // like 2026-02-30 that the regex alone can't reject.
+    if (pickupDateTime.getDate() !== day || pickupDateTime.getMonth() !== month - 1) {
+      return 'A valid pickup date is required.';
+    }
+    if (pickupDateTime.getTime() - Date.now() < PICKUP_MIN_NOTICE_MS) {
+      return 'Pickup must be scheduled at least 24 hours in advance.';
+    }
   }
   return null;
 }
@@ -90,6 +142,18 @@ app.get('/api/rewards/catalog', (req, res) => {
 // A cart can hold several orders at once (e.g. separate pickup batches), so
 // the request carries a list of orders, each with its own cookie/qty items.
 app.post('/api/checkout', optionalAuth, async (req, res) => {
+  // Spam protection for the shipping/USPS path specifically — checked first,
+  // before any other work, so an abusive IP is turned away as cheaply as
+  // possible. Unlike usps.js's global quota limiter (which stays
+  // non-blocking to protect capacity for everyone else), this one actually
+  // rejects the request: the point here is stopping a single bad actor, not
+  // preserving a shared resource.
+  if (req.body.fulfillment?.method === 'shipping' && !checkIpRateLimit(req.ip)) {
+    return res.status(429).json({
+      error: 'Too many shipping checkout attempts from this address. Please try again later.',
+    });
+  }
+
   const requestedOrders = Array.isArray(req.body.orders) ? req.body.orders : [];
 
   if (requestedOrders.length === 0) {
@@ -123,8 +187,23 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   };
   const fulfillment =
     req.body.fulfillment.method === 'shipping'
-      ? { method: 'shipping', shippingAddress: String(req.body.fulfillment.shippingAddress).trim() }
-      : { method: 'pickup' };
+      ? {
+          method: 'shipping',
+          shippingAddress: {
+            line1: String(req.body.fulfillment.shippingAddress.line1).trim(),
+            line2: req.body.fulfillment.shippingAddress.line2
+              ? String(req.body.fulfillment.shippingAddress.line2).trim()
+              : '',
+            city: String(req.body.fulfillment.shippingAddress.city).trim(),
+            state: String(req.body.fulfillment.shippingAddress.state).trim().toUpperCase(),
+            zip: String(req.body.fulfillment.shippingAddress.zip).trim(),
+          },
+        }
+      : {
+          method: 'pickup',
+          pickupDate: req.body.fulfillment.pickupDate,
+          pickupTime: req.body.fulfillment.pickupTime,
+        };
 
   // Reward redemptions require an account — resolve every requested key
   // against the server-side catalog up front (never trust a client-supplied
@@ -187,6 +266,12 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
         sizeLabel: entry.sizeLabel,
         price: 0,
         is_temperature_controlled: entry.is_temperature_controlled,
+        // entry.qty is baked into the reward's identity (e.g. "Three Dozen"
+        // is 3 full_dozen units) rather than the line-item qty below, which
+        // stays 1 — so physicalCookieCount needs this precomputed total
+        // rather than deriving it from a single is_full_dozen-style flag the
+        // way a real menu item would.
+        physicalCookieUnits: UNITS_PER_SIZE[entry.size] * entry.qty,
       },
       1
     );
@@ -196,6 +281,38 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     return res.status(400).json({
       error: 'This order contains temperature-controlled items that can only be picked up, not shipped.',
     });
+  }
+
+  // Runs after every cheap, local, no-I/O check above (contact/fulfillment
+  // shape, redemption auth, item/qty validity, temperature-controlled vs.
+  // shipping conflict) so a request that was always going to be rejected for
+  // one of those reasons never burns a real USPS API call first — and so it
+  // never surfaces "couldn't verify address" when the actual problem is
+  // something unrelated, like a temperature-controlled item on a ship order.
+  // Set once verification fails non-blockingly (rate-limited or a genuine
+  // USPS outage/timeout) — after orders are persisted below, this queues
+  // them for automatic re-verification the moment the quota window resets.
+  let addressNeedsRetry = false;
+  if (fulfillment.method === 'shipping') {
+    const result = await validateAddress(fulfillment.shippingAddress);
+    if (result.verified === true) {
+      fulfillment.shippingAddress = result.standardized; // more accurate for actual delivery
+      fulfillment.addressVerified = true;
+    } else if (result.reason === 'rejected') {
+      // USPS actively checked and said this address isn't deliverable — the
+      // only case that blocks checkout. A USPS outage/timeout or rate-limit
+      // ('error'/'rate_limited') or no credentials configured (verified ===
+      // null) must never block.
+      return res.status(400).json({
+        error: 'We couldn\'t verify that shipping address with USPS. Please double-check it and try again.',
+      });
+    } else if (result.verified === false) {
+      fulfillment.addressVerified = false; // couldn't be checked; kept as customer entered it
+      addressNeedsRetry = true;
+    }
+    // result.verified === null (no USPS credentials configured) → leave
+    // fulfillment exactly as before, no addressVerified field at all — and
+    // no retry, since there's nothing to retry against.
   }
 
   // Spend points before persisting anything. If this fails (insufficient
@@ -218,13 +335,15 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   try {
     const persistedOrders = [];
     for (const order of cart.orders) {
-      const { items, total } = order.toJSON();
+      const { items, total: subtotal } = order.toJSON();
+      const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
       const record = {
         orderId: randomUUID(),
         status: 'placed',
         items,
-        subtotal: total,
-        total,
+        subtotal,
+        ...(fulfillment.method === 'shipping' && { shippingFee }),
+        total: subtotal + shippingFee,
         contact,
         email: contact.email,
         fulfillment,
@@ -233,6 +352,10 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
         ...(req.user && { customerId: req.user.customerId }),
       };
       persistedOrders.push(await createOrder(record));
+    }
+
+    if (addressNeedsRetry) {
+      enqueueAddressRetry(persistedOrders.map((o) => o.orderId), fulfillment.shippingAddress);
     }
 
     // Signed-in customers earn 1 point per $1 spent. Guests earn nothing —

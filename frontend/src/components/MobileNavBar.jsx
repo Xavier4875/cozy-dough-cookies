@@ -3,14 +3,8 @@ import { NavLink } from 'react-router-dom';
 import { useCart } from '../context/useCart.js';
 import { useAuth } from '../context/useAuth.js';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
+import { NAV_TABS as TABS } from '../constants.js';
 import './MobileNavBar.css';
-
-const TABS = [
-  { to: '/', label: 'Home', icon: '🏠', end: true },
-  { to: '/menu', label: 'Menu', icon: '🍪' },
-  { to: '/policy', label: 'Policy', icon: '🚚' },
-  { to: '/nutrition', label: 'Nutrition', icon: '🥛' },
-];
 
 // Mobile chrome: a slim top bar (brand + cart icon only, no inline tabs —
 // that's what made the desktop NavBar wrap to 3 lines on narrow screens)

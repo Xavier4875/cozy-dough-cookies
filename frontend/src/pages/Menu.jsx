@@ -5,13 +5,9 @@ import OrderSwitcher from '../components/OrderSwitcher.jsx';
 import Mascot from '../components/Mascot.jsx';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import { useScrollSpy } from '../hooks/useScrollSpy.js';
+import { COOKIE_SIZES as SIZES } from '../constants.js';
 import './Menu.css';
 
-const SIZES = [
-  { key: 'single', flag: 'is_single', label: 'Singles' },
-  { key: 'half_dozen', flag: 'is_half_dozen', label: 'Half Dozens' },
-  { key: 'full_dozen', flag: 'is_full_dozen', label: 'Full Dozens' },
-];
 const SIZE_KEYS = SIZES.map((size) => size.key);
 
 function Menu() {

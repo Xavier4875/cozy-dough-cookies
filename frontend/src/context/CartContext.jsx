@@ -2,6 +2,7 @@ import { createContext, useEffect, useState } from 'react';
 import { Cart } from '../models/Cart.js';
 import { Order } from '../models/Order.js';
 import { useAuth } from './useAuth.js';
+import { UNITS_PER_SIZE } from '../constants.js';
 
 // Exported so useCart.js (a separate file, kept apart so this file only
 // exports the CartProvider component — mixing a component export with a
@@ -132,6 +133,10 @@ export function CartProvider({ children }) {
       sizeLabel: reward.sizeLabel,
       price: 0,
       is_temperature_controlled: reward.is_temperature_controlled,
+      // reward.qty is baked into the reward's identity (e.g. "Three Dozen"
+      // is 3 full_dozen units), not the line-item qty — mirrors the same
+      // fix server-side in backend/index.js's redemption fold-in.
+      physicalCookieUnits: UNITS_PER_SIZE[reward.size] * reward.qty,
     });
   }
 

@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
+import { PENDING_EMAIL_KEY } from '../constants.js';
 import './AuthForm.css';
-
-const PENDING_EMAIL_KEY = 'pendingSignupEmail';
 
 function SignIn() {
   const { signIn, getIdToken, resendConfirmationCode, error, errorCode } = useAuth();

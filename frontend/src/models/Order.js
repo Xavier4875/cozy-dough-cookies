@@ -1,3 +1,5 @@
+import { SHIPPING_MEDIUM_MAX_COOKIES, SHIPPING_FEE_MEDIUM, SHIPPING_FEE_LARGE } from '../constants.js';
+
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or the
 // special-cased localhost) — it's silently absent when the dev server is
 // opened over plain HTTP via a LAN IP (e.g. testing on a phone). Falling
@@ -59,6 +61,27 @@ export class Order {
   // Shipping isn't available when any item needs refrigeration.
   get requiresPickup() {
     return this.items.some((item) => item.cookie.is_temperature_controlled);
+  }
+
+  // Actual physical cookie count, weighted by box size — distinct from
+  // cookieCount above (which sums line-item qty). UX preview only; the
+  // server independently recomputes and is authoritative.
+  // Reward items carry an explicit physicalCookieUnits instead of an
+  // is_single/is_half_dozen/is_full_dozen flag, since a reward's own qty
+  // (e.g. "Three Dozen" = 3 full_dozen units) is baked into its identity
+  // rather than the line-item qty, which stays 1 for a single redemption.
+  get physicalCookieCount() {
+    return this.items.reduce((sum, item) => {
+      const unitsPerBox =
+        item.cookie.physicalCookieUnits !== undefined
+          ? item.cookie.physicalCookieUnits
+          : item.cookie.is_single ? 1 : item.cookie.is_half_dozen ? 6 : item.cookie.is_full_dozen ? 12 : 0;
+      return sum + unitsPerBox * item.qty;
+    }, 0);
+  }
+
+  get shippingFee() {
+    return this.physicalCookieCount <= SHIPPING_MEDIUM_MAX_COOKIES ? SHIPPING_FEE_MEDIUM : SHIPPING_FEE_LARGE;
   }
 
   toCheckoutPayload() {

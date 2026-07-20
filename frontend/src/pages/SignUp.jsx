@@ -2,17 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
+import { EMAIL_RE, PENDING_EMAIL_KEY } from '../constants.js';
 import './AuthForm.css';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Cognito accounts sit in an unconfirmed limbo between signUp() and a
-// successful confirmRegistration() — signing up again with that email fails
-// ("already exists"), and signing in fails too ("not confirmed"), so this is
-// the one thing that must survive a page reload. It deliberately holds only
-// the email, never the password — see the empty-password branch in
-// handleConfirm below for why that's safe.
-const PENDING_EMAIL_KEY = 'pendingSignupEmail';
 
 function SignUp() {
   const { signUp, confirmSignUp, resendConfirmationCode, signIn, getIdToken, error } = useAuth();

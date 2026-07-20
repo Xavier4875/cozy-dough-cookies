@@ -1,10 +1,10 @@
 import { Cookie } from '../models/Cookie.js';
+import { POINTS_PER_DOLLAR } from '../constants.js';
 
 // 20 points per $1 of redemption value (a 5% return rate, matching the 1
 // point per $1 earned on purchases) — every reward's cost is derived from
 // the real menu price rather than hand-typed, so it can never drift out of
 // sync with Cookie.TYPES if prices ever change.
-const POINTS_PER_DOLLAR = 20;
 
 function reward(key, type, size, qty, sizeLabel, label) {
   const price = Cookie.TYPES[type].prices[size];
