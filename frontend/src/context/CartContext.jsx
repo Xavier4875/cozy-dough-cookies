@@ -106,8 +106,12 @@ export function CartProvider({ children }) {
   );
   const availableRewardsPoints = rewardsBalance - pendingRedeemedPoints;
 
+  function addCookieToOrder(orderId, cookie) {
+    setCart((prev) => prev.updateOrder(orderId, (order) => order.addCookie(cookie)));
+  }
+
   function addCookieToActiveOrder(cookie) {
-    setCart((prev) => prev.updateOrder(activeOrderId, (order) => order.addCookie(cookie)));
+    addCookieToOrder(activeOrderId, cookie);
   }
 
   function removeCookieFromOrder(orderId, cookieId) {
@@ -118,10 +122,21 @@ export function CartProvider({ children }) {
     removeCookieFromOrder(activeOrderId, cookieId);
   }
 
+  // Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
+  // Dozen reward's dozens) into a single "Chocolate Chip ×2" entry rather
+  // than listing the same name twice — duplicated from the same logic in
+  // backend/index.js since the two runtimes share no package.
+  function summarizeFlavors(flavors) {
+    const counts = new Map();
+    for (const flavor of flavors) counts.set(flavor, (counts.get(flavor) || 0) + 1);
+    return [...counts.entries()].map(([flavor, n]) => (n > 1 ? `${flavor} ×${n}` : flavor)).join(', ');
+  }
+
   // Guarded client-side so the button can't be clicked past the balance, but
   // checkout re-verifies and spends atomically server-side regardless — this
-  // check is purely a UX nicety, never the source of truth.
-  function redeemReward(reward) {
+  // check is purely a UX nicety, never the source of truth. `flavors` is one
+  // entry per dozen (length === reward.qty), collected by RewardFlavorModal.
+  function redeemReward(reward, flavors) {
     if (availableRewardsPoints < reward.points) return;
     addCookieToActiveOrder({
       id: `reward-${reward.key}`,
@@ -129,10 +144,20 @@ export function CartProvider({ children }) {
       isReward: true,
       pointsCost: reward.points,
       type: reward.type,
-      flavor: `${reward.label} (redeemed)`,
+      flavor: `${reward.label}: ${summarizeFlavors(flavors)}`,
+      flavors,
       sizeLabel: reward.sizeLabel,
       price: 0,
-      is_temperature_controlled: reward.is_temperature_controlled,
+      // Real menu-equivalent value (e.g. Two Dozen Standard = $36), not the
+      // $0 actually charged — reward.value comes straight from the catalog
+      // endpoint, so it can't drift from Cookie.TYPES pricing server-side.
+      value: reward.value,
+      // Real per-flavor answer, looked up from the same products list the
+      // Menu page uses — no new fetch needed, one Cookie already exists per
+      // (type, flavor, size) combo.
+      is_temperature_controlled: flavors.some(
+        (f) => products.find((p) => p.type === reward.type && p.flavor === f)?.is_temperature_controlled
+      ),
       // reward.qty is baked into the reward's identity (e.g. "Three Dozen"
       // is 3 full_dozen units), not the line-item qty — mirrors the same
       // fix server-side in backend/index.js's redemption fold-in.
@@ -241,6 +266,7 @@ export function CartProvider({ children }) {
     activeOrder,
     activeOrderId,
     addCookieToActiveOrder,
+    addCookieToOrder,
     removeCookieFromActiveOrder,
     removeCookieFromOrder,
     qtyInActiveOrder,

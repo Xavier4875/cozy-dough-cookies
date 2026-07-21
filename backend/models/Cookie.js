@@ -1,6 +1,6 @@
 const TYPES = {
   standard: {
-    prices: { single: 2.0, half_dozen: 9.0, full_dozen: 18.0 },
+    prices: { single: 2.50, half_dozen: 9.0, full_dozen: 18.0 },
     flavors: [
       'Chocolate Chip',
       'M&M',
@@ -15,7 +15,7 @@ const TYPES = {
     ],
   },
   special: {
-    prices: { single: 3.0, half_dozen: 15.0, full_dozen: 30.0 },
+    prices: { single: 3.50, half_dozen: 15.0, full_dozen: 30.0 },
     flavors: [
       'Lemon',
       'White Chocolate Raspberry',
@@ -40,7 +40,7 @@ const SIZE_LABELS = {
 
 // These flavors contain dairy/fresh fillings that need refrigeration, so they
 // can only be picked up, never shipped.
-const TEMPERATURE_CONTROLLED_FLAVORS = new Set([
+export const TEMPERATURE_CONTROLLED_FLAVORS = new Set([
   'Strawberry Cheesecake',
   'Strawberry-Blueberry-Cheesecake Sandwich',
   'Oatmeal Cream Pie',

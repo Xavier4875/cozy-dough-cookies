@@ -58,6 +58,12 @@
   white-space: nowrap;
 }
 
+.cart-min-order-note {
+  color: #9a6b2c;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0;
+}
+
 .checkout-order-btn {
   border: none;
   border-radius: 6px;
@@ -98,6 +104,22 @@
   font-size: 0.75rem;
   margin-left: 0.4rem;
   vertical-align: middle;
+}
+
+/* .stepper-btn/.stepper-qty are CookieGrid's shared stepper styles — reused
+   here as-is, just wrapped tighter for an inline line-item instead of a card. */
+.cart-item-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.cart-item-stepper .stepper-btn {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 1.1rem;
 }
 
 .cart-mascot {

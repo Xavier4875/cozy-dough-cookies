@@ -13,15 +13,13 @@ function MobileNavBar() {
   const { cart, toggleCart } = useCart();
   const { isAuthenticated, toggleAccount } = useAuth();
   const cartCount = cart.orderCount;
-  const topBarRef = useRef(null);
-  const bottomBarRef = useRef(null);
+  const wrapperRef = useRef(null);
 
-  usePublishHeight(topBarRef, '--navbar-height');
-  usePublishHeight(bottomBarRef, '--bottom-tabbar-height');
+  usePublishHeight(wrapperRef, '--navbar-height');
 
   return (
-    <>
-      <header className="mobile-topbar" ref={topBarRef}>
+    <div className="mobile-nav-wrapper" ref={wrapperRef}>
+      <header className="mobile-topbar">
         <div className="navbar-left">
           <div className="navbar-auth">
             {isAuthenticated ? (
@@ -45,7 +43,7 @@ function MobileNavBar() {
           {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
         </button>
       </header>
-      <nav className="mobile-tabbar" ref={bottomBarRef}>
+      <nav className="mobile-tabbar">
         {TABS.map((tab) => (
           <NavLink
             key={tab.to}
@@ -62,7 +60,7 @@ function MobileNavBar() {
           </NavLink>
         ))}
       </nav>
-    </>
+    </div>
   );
 }
 

@@ -24,6 +24,10 @@ export const SHIPPING_FEE_MEDIUM = 24;
 export const SHIPPING_FEE_LARGE = 30;
 export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12 };
 
+// Smallest subtotal (pre-shipping) a single order may check out with —
+// equivalent to a half dozen at standard pricing.
+export const MIN_ORDER_SUBTOTAL = 9;
+
 // USPS/IP rate limiting defaults (env-overridable at each call site)
 export const USPS_RATE_LIMIT_MAX_CALLS_DEFAULT = 60;
 export const USPS_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;
@@ -31,4 +35,4 @@ export const IP_RATE_LIMIT_MAX_CALLS_DEFAULT = 10;
 export const IP_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;
 
 // Rewards
-export const POINTS_PER_DOLLAR = 20;
+export const POINTS_PER_DOLLAR = 25;

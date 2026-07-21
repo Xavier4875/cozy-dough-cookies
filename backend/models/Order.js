@@ -26,6 +26,17 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
   }
 
+  // Like total, but a redeemed reward counts at its real menu-equivalent
+  // value instead of the $0 it actually charges — so an order that's fully
+  // paid for in points still counts as real value for the minimum-order
+  // checkout rule, rather than always reading as $0.
+  get valueTotal() {
+    return this.items.reduce((sum, item) => {
+      const unitValue = item.cookie.value !== undefined ? item.cookie.value : item.cookie.price;
+      return sum + unitValue * item.qty;
+    }, 0);
+  }
+
   // Shipping isn't available when any item needs refrigeration.
   get requiresPickup() {
     return this.items.some((item) => item.cookie.is_temperature_controlled);

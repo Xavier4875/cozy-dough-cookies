@@ -202,7 +202,3 @@
     animation: none;
   }
 }
-
-.page-container--mobile {
-  padding-bottom: var(--bottom-tabbar-height, 56px);
-}

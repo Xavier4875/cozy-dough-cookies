@@ -24,7 +24,7 @@ function App() {
   return (
     <div className="app">
       {isMobile ? <MobileNavBar /> : <NavBar />}
-      <main className={'page-container' + (isMobile ? ' page-container--mobile' : '')}>
+      <main className="page-container">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/menu" element={isMobile ? <MobileMenu /> : <Menu />} />

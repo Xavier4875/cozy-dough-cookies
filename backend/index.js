@@ -7,7 +7,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
-import { Cookie } from './models/Cookie.js';
+import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS } from './models/Cookie.js';
 import { Order } from './models/Order.js';
 import { Cart } from './models/Cart.js';
 import { createOrder, getOrderById, queryOrdersByCustomerId } from './db/ordersRepo.js';
@@ -33,7 +33,17 @@ import {
   STATE_RE,
   ZIP_RE,
   UNITS_PER_SIZE,
+  MIN_ORDER_SUBTOTAL,
 } from './constants.js';
+
+// Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
+// Dozen reward's dozens) into a single "Chocolate Chip ×2" entry rather than
+// listing the same name twice.
+function summarizeFlavors(flavors) {
+  const counts = new Map();
+  for (const flavor of flavors) counts.set(flavor, (counts.get(flavor) || 0) + 1);
+  return [...counts.entries()].map(([flavor, n]) => (n > 1 ? `${flavor} ×${n}` : flavor)).join(', ');
+}
 
 function validateContact(contact) {
   if (!contact || typeof contact !== 'object') return 'Contact information is required.';
@@ -45,8 +55,21 @@ function validateContact(contact) {
 }
 
 // Format-only checks — not validated against a real list of states/cities/
-// zips. Real address validation is planned for later; this is an accepted
-// interim state.
+// zips (that's what usps.js's real USPS lookup is for). Shared by
+// validateFulfillment below and the /api/shipping/validate-address endpoint,
+// so both reject a malformed address the same way before ever spending a
+// real USPS API call on it.
+function validateShippingAddressFields(shippingAddress) {
+  if (!shippingAddress || typeof shippingAddress !== 'object') {
+    return 'A valid shipping address is required.';
+  }
+  const { line1, city, state, zip } = shippingAddress;
+  if (!line1 || !String(line1).trim()) return 'Street address is required.';
+  if (!city || !String(city).trim()) return 'City is required.';
+  if (!state || !STATE_RE.test(String(state).trim())) return 'State must be a 2-letter abbreviation.';
+  if (!zip || !ZIP_RE.test(String(zip).trim())) return 'A valid ZIP code is required.';
+  return null;
+}
 
 // No timezone infrastructure exists anywhere in this app (single
 // physical-location shop) — pickupDate/pickupTime are plain wall-clock
@@ -60,14 +83,8 @@ function validateFulfillment(fulfillment) {
     return 'Fulfillment method must be "pickup" or "shipping".';
   }
   if (method === 'shipping') {
-    if (!shippingAddress || typeof shippingAddress !== 'object') {
-      return 'A valid shipping address is required.';
-    }
-    const { line1, city, state, zip } = shippingAddress;
-    if (!line1 || !String(line1).trim()) return 'Street address is required.';
-    if (!city || !String(city).trim()) return 'City is required.';
-    if (!state || !STATE_RE.test(String(state).trim())) return 'State must be a 2-letter abbreviation.';
-    if (!zip || !ZIP_RE.test(String(zip).trim())) return 'A valid ZIP code is required.';
+    const addressError = validateShippingAddressFields(shippingAddress);
+    if (addressError) return addressError;
   }
   if (method === 'pickup') {
     if (!pickupDate || !PICKUP_DATE_RE.test(pickupDate)) {
@@ -128,6 +145,36 @@ app.get('/api/products', (req, res) => {
 // than hardcoding point costs, so display and enforcement can't drift apart.
 app.get('/api/rewards/catalog', (req, res) => {
   res.json(REWARDS_CATALOG);
+});
+
+// Lets the shipping address modal block progression on a bad address before
+// the customer ever reaches checkout, instead of only finding out after
+// filling out contact info too. Shares the same per-IP limiter as checkout's
+// shipping path — it spends the same real, rate-limited USPS quota, so an
+// abusive IP hitting this endpoint instead of checkout must be stopped the
+// same way. Checkout still independently re-verifies with USPS when the
+// order is actually placed (see the shipping block below) — this endpoint is
+// purely a UX gate, never the source of truth, same as every other
+// client-facing check in this app (rewards balance, cart totals, etc.).
+app.post('/api/shipping/validate-address', async (req, res) => {
+  if (!checkIpRateLimit(req.ip)) {
+    return res.status(429).json({
+      error: 'Too many address checks from this address. Please try again later.',
+    });
+  }
+  const addressError = validateShippingAddressFields(req.body.shippingAddress);
+  if (addressError) {
+    return res.status(400).json({ error: addressError });
+  }
+  const { line1, line2, city, state, zip } = req.body.shippingAddress;
+  const result = await validateAddress({
+    line1: String(line1).trim(),
+    line2: line2 ? String(line2).trim() : '',
+    city: String(city).trim(),
+    state: String(state).trim().toUpperCase(),
+    zip: String(zip).trim(),
+  });
+  res.json(result);
 });
 
 // Real persistence, no real payment yet — prices/totals are computed
@@ -217,15 +264,26 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   if (hasRedemptions && !req.user) {
     return res.status(400).json({ error: 'Sign in to redeem rewards.' });
   }
-  const resolvedRedemptions = []; // [{ orderIndex, entry }]
+  const resolvedRedemptions = []; // [{ orderIndex, entry, flavors }]
   for (let i = 0; i < requestedOrders.length; i++) {
-    const keys = Array.isArray(requestedOrders[i].redemptions) ? requestedOrders[i].redemptions : [];
-    for (const key of keys) {
+    const redemptions = Array.isArray(requestedOrders[i].redemptions) ? requestedOrders[i].redemptions : [];
+    for (const redemption of redemptions) {
+      const key = redemption?.key;
+      const flavors = redemption?.flavors;
       const entry = getReward(key);
       if (!entry) {
         return res.status(400).json({ error: `Unknown reward: ${key}` });
       }
-      resolvedRedemptions.push({ orderIndex: i, entry });
+      if (!Array.isArray(flavors) || flavors.length !== entry.qty) {
+        return res.status(400).json({
+          error: `${entry.label} requires exactly ${entry.qty} flavor selection${entry.qty > 1 ? 's' : ''}.`,
+        });
+      }
+      const validFlavors = Cookie.TYPES[entry.type].flavors;
+      if (flavors.some((f) => !validFlavors.includes(f))) {
+        return res.status(400).json({ error: `Invalid flavor selection for ${entry.label}.` });
+      }
+      resolvedRedemptions.push({ orderIndex: i, entry, flavors });
     }
   }
   const totalPointsRequired = resolvedRedemptions.reduce((sum, r) => sum + r.entry.points, 0);
@@ -257,15 +315,21 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   // Fold the free reward item(s) into their order before the shipping check
   // below, so a temperature-controlled reward correctly forces pickup just
   // like a paid item would.
-  for (const { orderIndex, entry } of resolvedRedemptions) {
+  for (const { orderIndex, entry, flavors } of resolvedRedemptions) {
     cart.orders[orderIndex].addCookie(
       {
         id: `reward-${entry.key}`,
         type: entry.type,
-        flavor: `${entry.label} (redeemed)`,
+        flavor: `${entry.label}: ${summarizeFlavors(flavors)}`,
         sizeLabel: entry.sizeLabel,
         price: 0,
-        is_temperature_controlled: entry.is_temperature_controlled,
+        // Real menu-equivalent value, not the $0 actually charged — lets a
+        // fully-redeemed order still count toward the minimum-order-value
+        // checkout rule below instead of always reading as $0.
+        value: entry.value,
+        // Real per-flavor answer now that a flavor is actually chosen, rather
+        // than entry.is_temperature_controlled's conservative per-type guess.
+        is_temperature_controlled: flavors.some((f) => TEMPERATURE_CONTROLLED_FLAVORS.has(f)),
         // entry.qty is baked into the reward's identity (e.g. "Three Dozen"
         // is 3 full_dozen units) rather than the line-item qty below, which
         // stays 1 — so physicalCookieCount needs this precomputed total
@@ -275,6 +339,15 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
       },
       1
     );
+  }
+
+  // valueTotal, not total — a redeemed reward counts at its real menu value
+  // here, not the $0 it actually charges, so an order paid for entirely in
+  // points can still clear the minimum instead of always reading as $0.
+  if (cart.orders.some((order) => order.valueTotal < MIN_ORDER_SUBTOTAL)) {
+    return res.status(400).json({
+      error: `Each order must have a value of at least $${MIN_ORDER_SUBTOTAL.toFixed(2)}.`,
+    });
   }
 
   if (fulfillment.method === 'shipping' && cart.orders.some((order) => order.requiresPickup)) {

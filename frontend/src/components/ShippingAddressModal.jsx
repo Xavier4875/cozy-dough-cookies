@@ -14,6 +14,11 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
   const [formError, setFormError] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
+  // USPS's corrected version of what was typed, once confirmed deliverable —
+  // null until then, and also null when USPS couldn't be reached at all (the
+  // non-blocking path), in which case the address is used exactly as typed.
+  const [standardizedAddress, setStandardizedAddress] = useState(null);
   const [isStateListOpen, setIsStateListOpen] = useState(false);
   const stateFieldRef = useRef(null);
 
@@ -40,6 +45,7 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
     setState('');
     setZip('');
     setFormError('');
+    setStandardizedAddress(null);
     setIsStateListOpen(false);
   }
 
@@ -48,17 +54,58 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
     onCancel();
   }
 
-  function handleAddressSubmit(e) {
+  // Blocks progression to the confirm/place-order step until USPS actually
+  // confirms the address — the same real-time check checkout itself does,
+  // just moved earlier so a bad address is caught before contact info and
+  // order review, not after. Checkout still independently re-verifies with
+  // USPS when the order is placed; this is purely an earlier UX gate.
+  async function handleAddressSubmit(e) {
     e.preventDefault();
     if (!line1.trim()) return setFormError('Street address is required.');
     if (!city.trim()) return setFormError('City is required.');
     if (!state) return setFormError('State is required.');
     if (!ZIP_RE.test(zip.trim())) return setFormError('A valid ZIP code is required.');
     setFormError('');
-    setStep('confirm');
+    setIsValidating(true);
+    try {
+      const res = await fetch('/api/shipping/validate-address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shippingAddress: {
+            line1: line1.trim(),
+            line2: line2.trim(),
+            city: city.trim(),
+            state,
+            zip: zip.trim(),
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFormError(data.error || 'Something went wrong. Please try again.');
+        return;
+      }
+      if (data.reason === 'rejected') {
+        setFormError("We couldn't verify that address with USPS. Please double-check it and try again.");
+        return;
+      }
+      // verified === true → USPS confirmed it, use its standardized form.
+      // verified === false ('error'/'rate_limited') or null (dormant) → USPS
+      // couldn't be checked at all, so never block on that — proceed with
+      // the address exactly as typed, same non-blocking rule checkout uses.
+      setStandardizedAddress(data.verified === true ? data.standardized : null);
+      setStep('confirm');
+    } catch {
+      // Network failure reaching our own backend — same non-blocking rule.
+      setStandardizedAddress(null);
+      setStep('confirm');
+    } finally {
+      setIsValidating(false);
+    }
   }
 
-  const address = {
+  const address = standardizedAddress ?? {
     line1: line1.trim(),
     line2: line2.trim(),
     city: city.trim(),
@@ -130,8 +177,10 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
             </div>
             {formError && <p className="checkout-error">{formError}</p>}
             <div className="shipping-address-actions">
-              <button type="button" className="shipping-address-cancel-btn" onClick={handleCancel}>Cancel</button>
-              <button type="submit" className="checkout-btn">Continue</button>
+              <button type="button" className="shipping-address-cancel-btn" onClick={handleCancel} disabled={isValidating}>Cancel</button>
+              <button type="submit" className="checkout-btn" disabled={isValidating}>
+                {isValidating ? 'Checking address…' : 'Continue'}
+              </button>
             </div>
           </form>
         )}

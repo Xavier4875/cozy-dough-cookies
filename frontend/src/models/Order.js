@@ -54,6 +54,18 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
   }
 
+  // Like total, but a redeemed reward counts at its real menu-equivalent
+  // value instead of the $0 it actually charges — so an order that's fully
+  // paid for in points still counts as real value for the minimum-order
+  // checkout rule, rather than always reading as $0. UX preview only; the
+  // server independently recomputes and is authoritative.
+  get valueTotal() {
+    return this.items.reduce((sum, item) => {
+      const unitValue = item.cookie.value !== undefined ? item.cookie.value : item.cookie.price;
+      return sum + unitValue * item.qty;
+    }, 0);
+  }
+
   get cookieCount() {
     return this.items.reduce((sum, item) => sum + item.qty, 0);
   }
@@ -85,15 +97,17 @@ export class Order {
   }
 
   toCheckoutPayload() {
-    // Reward items carry no price the server should trust — only the key is
-    // sent, and it's repeated once per qty (redeeming the same reward twice
-    // is two occurrences, not one entry with a count), matching how the
-    // backend resolves and re-adds each redemption individually.
+    // Reward items carry no price the server should trust — only the key and
+    // chosen flavor(s) are sent, repeated once per qty (redeeming the same
+    // reward twice is two occurrences, not one entry with a count), matching
+    // how the backend resolves and re-adds each redemption individually.
     const items = [];
     const redemptions = [];
     for (const item of this.items) {
       if (item.cookie.isReward) {
-        for (let i = 0; i < item.qty; i++) redemptions.push(item.cookie.rewardKey);
+        for (let i = 0; i < item.qty; i++) {
+          redemptions.push({ key: item.cookie.rewardKey, flavors: item.cookie.flavors });
+        }
       } else {
         items.push({ id: item.cookie.id, qty: item.qty });
       }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useCart } from '../context/useCart.js';
 import Mascot from './Mascot.jsx';
 import CheckoutForm from './CheckoutForm.jsx';
+import { MIN_ORDER_SUBTOTAL } from '../constants.js';
 import './CartDrawerContent.css';
 
 // The actual cart data/checkout UI, with no knowledge of whether it's
@@ -14,6 +15,7 @@ function CartDrawerContent() {
     activeOrderId,
     switchActiveOrder,
     removeOrder,
+    addCookieToOrder,
     removeCookieFromOrder,
     checkingOut,
     checkoutError,
@@ -112,15 +114,36 @@ function CartDrawerContent() {
                       {order.items.map((item) => (
                         <li key={item.cookie.id}>
                           <span>
-                            {item.cookie.flavor} ({item.cookie.sizeLabel}) × {item.qty}
-                            {item.cookie.isReward && (
-                              <button
-                                className="remove-btn reward-remove-btn"
-                                onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
-                                aria-label={`Remove ${item.cookie.flavor} reward`}
-                              >
-                                ×
-                              </button>
+                            {item.cookie.flavor} ({item.cookie.sizeLabel})
+                            {item.cookie.isReward ? (
+                              <>
+                                {' '}× {item.qty}
+                                <button
+                                  className="remove-btn reward-remove-btn"
+                                  onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
+                                  aria-label={`Remove ${item.cookie.flavor} reward`}
+                                >
+                                  ×
+                                </button>
+                              </>
+                            ) : (
+                              <span className="cart-item-stepper">
+                                <button
+                                  className="stepper-btn stepper-btn--remove"
+                                  onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
+                                  aria-label={`Remove one ${item.cookie.flavor}`}
+                                >
+                                  −
+                                </button>
+                                <span className="stepper-qty">{item.qty}</span>
+                                <button
+                                  className="stepper-btn stepper-btn--add"
+                                  onClick={() => addCookieToOrder(order.id, item.cookie)}
+                                  aria-label={`Add one ${item.cookie.flavor}`}
+                                >
+                                  +
+                                </button>
+                              </span>
                             )}
                           </span>
                           <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
@@ -134,12 +157,18 @@ function CartDrawerContent() {
                       <button
                         className="checkout-order-btn"
                         onClick={() => setCheckoutTarget({ type: 'order', orderId: order.id })}
-                        disabled={checkingOut}
+                        disabled={checkingOut || order.valueTotal < MIN_ORDER_SUBTOTAL}
                       >
                         Checkout this order
                       </button>
                     )}
                   </div>
+                  {!order.isEmpty && order.valueTotal < MIN_ORDER_SUBTOTAL && (
+                    <p className="cart-min-order-note">
+                      Add ${(MIN_ORDER_SUBTOTAL - order.valueTotal).toFixed(2)} more to meet the $
+                      {MIN_ORDER_SUBTOTAL.toFixed(2)} order minimum.
+                    </p>
+                  )}
                 </div>
               ))}
               <p className="cart-total cart-grand-total">
@@ -149,7 +178,11 @@ function CartDrawerContent() {
               <button
                 className="checkout-btn"
                 onClick={() => setCheckoutTarget({ type: 'all' })}
-                disabled={checkingOut || cart.isEmpty}
+                disabled={
+                  checkingOut ||
+                  cart.isEmpty ||
+                  cart.orders.some((order) => !order.isEmpty && order.valueTotal < MIN_ORDER_SUBTOTAL)
+                }
               >
                 Checkout all orders
               </button>

@@ -78,6 +78,36 @@ async function getAccessToken() {
   return cachedToken.accessToken;
 }
 
+// USPS expects an ordinal suffix on a numbered street name ("21st St", not
+// "21 St"), but it's an easy typo to drop. A bare numeric token can't be told
+// apart from a house number, so only a numeric token that ISN'T the first
+// word (the house number) and is immediately followed by a recognized street
+// type gets a suffix inserted.
+const STREET_TYPE_RE =
+  /^(st|street|ave|avenue|blvd|boulevard|dr|drive|ct|court|ln|lane|pl|place|rd|road|way|ter|terrace|cir|circle|pkwy|parkway|hwy|highway|trl|trail|sq|square)\.?$/i;
+
+function ordinalSuffix(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  switch (n % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+function withOrdinalStreetSuffixes(line1) {
+  const words = line1.trim().split(/\s+/);
+  for (let i = 1; i < words.length - 1; i++) {
+    if (/^\d+$/.test(words[i]) && STREET_TYPE_RE.test(words[i + 1])) {
+      const n = Number(words[i]);
+      words[i] = `${n}${ordinalSuffix(n)}`;
+    }
+  }
+  return words.join(' ');
+}
+
 // Never throws. Four outcomes:
 //   { verified: true, standardized }        — USPS confirmed it's deliverable.
 //   { verified: false, reason: 'rejected' } — USPS actively checked and said
@@ -100,8 +130,24 @@ async function getAccessToken() {
 //   { verified: null }                      — feature dormant, no credentials.
 export async function validateAddress({ line1, line2, city, state, zip }) {
   if (!isConfigured()) return { verified: null };
-  if (!checkRateLimit()) return { verified: false, reason: 'rate_limited' };
 
+  if (!checkRateLimit()) return { verified: false, reason: 'rate_limited' };
+  const first = await attemptValidate({ line1, line2, city, state, zip });
+  if (first.verified === true || first.reason !== 'rejected') return first;
+
+  // Only retry with a corrected line1 if the suffix fix actually changes
+  // anything — no point burning a second call on an address it can't help.
+  const correctedLine1 = withOrdinalStreetSuffixes(line1);
+  if (correctedLine1 === line1) return first;
+
+  // A missing budget for the retry just means we surface the original
+  // rejection — never silently block on something we couldn't re-check.
+  if (!checkRateLimit()) return first;
+  const retry = await attemptValidate({ line1: correctedLine1, line2, city, state, zip });
+  return retry.verified === true ? retry : first;
+}
+
+async function attemptValidate({ line1, line2, city, state, zip }) {
   try {
     const token = await getAccessToken();
     const [zipCode, zipPlus4] = zip.split('-');
