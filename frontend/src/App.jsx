@@ -13,6 +13,8 @@ import Policy from './pages/Policy.jsx';
 import Nutrition from './pages/Nutrition.jsx';
 import Rewards from './pages/Rewards.jsx';
 import OrderHistory from './pages/OrderHistory.jsx';
+import OrderTracking from './pages/OrderTracking.jsx';
+import Sales from './pages/Sales.jsx';
 import SignIn from './pages/SignIn.jsx';
 import SignUp from './pages/SignUp.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
@@ -32,6 +34,8 @@ function App() {
           <Route path="/nutrition" element={<Nutrition />} />
           <Route path="/rewards" element={<Rewards />} />
           <Route path="/order-history" element={<OrderHistory />} />
+          <Route path="/order-tracking" element={<OrderTracking />} />
+          <Route path="/sales" element={<Sales />} />
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/sign-up" element={<SignUp />} />
         </Routes>

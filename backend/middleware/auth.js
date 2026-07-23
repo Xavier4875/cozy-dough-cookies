@@ -34,6 +34,9 @@ async function decodeUser(req) {
       firstName: payload.given_name,
       lastName: payload.family_name,
       role: groups.includes('staff') ? 'staff' : 'customer',
+      // Exposed (not just collapsed into `role`) so /api/customers/sync can
+      // check real group membership directly — see its comment for why.
+      groups,
     };
   } catch {
     return null;
@@ -71,6 +74,15 @@ export async function requireActiveCustomer(req, res, next) {
   const customer = await getCustomerById(req.user.customerId);
   if (!customer) {
     return res.status(401).json({ error: 'This account no longer exists. Please sign in again.' });
+  }
+  next();
+}
+
+// 403s for anyone whose token isn't in the 'staff' Cognito group. Must run
+// after requireAuth (needs req.user.role already set).
+export async function requireStaff(req, res, next) {
+  if (req.user.role !== 'staff') {
+    return res.status(403).json({ error: 'Staff access required.' });
   }
   next();
 }

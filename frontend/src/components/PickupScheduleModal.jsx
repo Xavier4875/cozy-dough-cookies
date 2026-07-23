@@ -20,7 +20,7 @@ function addMonths(date, n) {
   return new Date(date.getFullYear(), date.getMonth() + n, 1);
 }
 
-function isSameDay(a, b) {
+function isSameCalendarDay(a, b) {
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
@@ -71,7 +71,11 @@ function isDateSelectable(date, now) {
   return dayClose.getTime() - now.getTime() >= MIN_NOTICE_MS;
 }
 
-function getTimeSlots(date, now) {
+// minNoticeMs is configurable so the "Request same day pickup" link can
+// reuse this exact same slot-building logic with a 0 floor instead of the
+// normal 24-hour one — still bounded to today's business hours, just
+// without the advance-notice requirement.
+function getTimeSlots(date, now, minNoticeMs = MIN_NOTICE_MS) {
   const slots = [];
   for (let minutes = OPEN_MINUTES; minutes <= CLOSE_MINUTES; minutes += 15) {
     const hour = Math.floor(minutes / 60);
@@ -79,7 +83,7 @@ function getTimeSlots(date, now) {
     const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
     slots.push({
       time: `${pad2(hour)}:${pad2(minute)}`,
-      enabled: slotDateTime.getTime() - now.getTime() >= MIN_NOTICE_MS,
+      enabled: slotDateTime.getTime() - now.getTime() >= minNoticeMs,
     });
   }
   return slots;
@@ -90,6 +94,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
   const [viewedMonth, setViewedMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
+  const [sameDayPickup, setSameDayPickup] = useState(false);
 
   if (!isOpen) return null;
 
@@ -98,7 +103,16 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
     setViewedMonth(startOfMonth(new Date()));
     setSelectedDate(null);
     setSelectedTime(null);
+    setSameDayPickup(false);
     onCancel();
+  }
+
+  // The normal calendar never allows selecting today (see isDateSelectable
+  // above) — this is the only way to get today's date into selectedDate.
+  function handleSameDayClick() {
+    setSelectedDate(new Date());
+    setSameDayPickup(true);
+    setStep('time');
   }
 
   const now = new Date();
@@ -119,7 +133,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
   return (
     <div className="pickup-schedule-overlay" onClick={handleCancel}>
       <div className="pickup-schedule-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Schedule Pickup</h2>
+        <h2>Request a Pickup Time</h2>
 
         {step === 'date' && (
           <>
@@ -157,7 +171,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
               {dayCells.map((date, i) => {
                 if (!date) return <span key={`blank-${i}`} />;
                 const selectable = isDateSelectable(date, now);
-                const selected = selectedDate && isSameDay(date, selectedDate);
+                const selected = selectedDate && isSameCalendarDay(date, selectedDate);
                 return (
                   <button
                     type="button"
@@ -170,6 +184,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
                     disabled={!selectable}
                     onClick={() => {
                       setSelectedDate(date);
+                      setSameDayPickup(false);
                       setStep('time');
                     }}
                   >
@@ -178,6 +193,10 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
                 );
               })}
             </div>
+
+            <button type="button" className="pickup-schedule-same-day-link" onClick={handleSameDayClick}>
+              Request same day pickup
+            </button>
 
             <div className="pickup-schedule-actions">
               <button type="button" className="pickup-schedule-cancel-btn" onClick={handleCancel}>
@@ -189,9 +208,11 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
 
         {step === 'time' && selectedDate && (
           <>
-            <p className="pickup-schedule-subtitle">{formatDateLong(selectedDate)}</p>
+            <p className="pickup-schedule-subtitle">
+              {sameDayPickup ? 'Same Day Pickup' : formatDateLong(selectedDate)}
+            </p>
             <div className="pickup-schedule-time-grid">
-              {getTimeSlots(selectedDate, now).map((slot) => (
+              {getTimeSlots(selectedDate, now, sameDayPickup ? 0 : MIN_NOTICE_MS).map((slot) => (
                 <button
                   type="button"
                   key={slot.time}
@@ -239,7 +260,9 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
             ))}
             <p className="cart-total">Total: ${grandTotal.toFixed(2)}</p>
             <p className="pickup-schedule-subtitle">
-              Pickup: {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
+              {sameDayPickup
+                ? `Same Day Pickup: ${formatTime12h(selectedTime)}`
+                : `Pickup: ${formatDateLong(selectedDate)} at ${formatTime12h(selectedTime)}`}
             </p>
             <div className="pickup-schedule-actions">
               <button type="button" className="pickup-schedule-cancel-btn" onClick={() => setStep('time')}>
@@ -248,7 +271,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
               <button
                 type="button"
                 className="checkout-btn"
-                onClick={() => onConfirm(toDateKey(selectedDate), selectedTime)}
+                onClick={() => onConfirm(toDateKey(selectedDate), selectedTime, sameDayPickup)}
               >
                 Confirm &amp; Place Order
               </button>

@@ -1,0 +1,569 @@
+.order-tracking-page > * {
+  margin-bottom: 1.25rem;
+}
+
+.staff-access-note {
+  text-align: center;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.order-tracking-tabs {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 2px solid #eee;
+}
+
+.order-tracking-tab {
+  padding: 0.5rem 0.1rem;
+  margin-bottom: -2px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-tracking-tab:hover {
+  color: #3d2b1f;
+}
+
+.order-tracking-tab--active {
+  color: #3d2b1f;
+  border-bottom-color: #3d2b1f;
+}
+
+.order-tracking-order {
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 3px solid #3d2b1f;
+}
+
+.order-tracking-order:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.order-tracking-placed-at {
+  font-weight: 700;
+  color: #3d2b1f;
+  margin: 0 0 0.5rem;
+}
+
+.order-tracking-order-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.order-tracking-order-header .order-tracking-placed-at {
+  margin-bottom: 0.5rem;
+}
+
+/* Plain red glyph, not a boxed button — same "don't look like a button"
+   precedent as the status badges. */
+.order-tracking-cancel-btn {
+  border: none;
+  background: none;
+  color: #b3261e;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+  cursor: pointer;
+}
+
+.order-tracking-cancel-btn:hover {
+  color: #7a1a13;
+}
+
+.order-tracking-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 2px solid #3d2b1f;
+}
+
+.order-tracking-table th,
+.order-tracking-table td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #3d2b1f;
+  vertical-align: top;
+}
+
+.order-tracking-table th {
+  width: 35%;
+  font-weight: 700;
+  color: #3d2b1f;
+  background: #fdf8f0;
+}
+
+.order-tracking-table .cart-list {
+  margin: 0;
+}
+
+.order-tracking-unverified-note {
+  color: #b3261e;
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
+}
+
+.order-tracking-stage-value {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.order-tracking-confirmed-badge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #2e7d32;
+}
+
+.order-tracking-staff-note {
+  color: #6b7280;
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
+}
+
+.order-tracking-action-error {
+  color: #b3261e;
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
+}
+
+.order-tracking-stage-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.order-tracking-stage-actions button,
+.order-tracking-edit-actions button {
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-tracking-stage-actions button:hover,
+.order-tracking-edit-actions button:hover {
+  background: #f4e9d8;
+}
+
+.order-tracking-stage-actions button:disabled,
+.order-tracking-edit-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.order-tracking-confirm-btn,
+.order-tracking-save-btn {
+  border-color: #2e7d32;
+  background: #2e7d32;
+  color: #fff;
+}
+
+.order-tracking-confirm-btn:hover,
+.order-tracking-save-btn:hover {
+  background: #1b5e20;
+}
+
+.order-tracking-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Plain colored text, not a button/pill — this is a status indicator, the
+   "Change Order Status" button next to it is the actual control. */
+.order-tracking-status-badge {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.order-tracking-status-badge--placed {
+  color: #6b7280;
+}
+
+.order-tracking-status-badge--confirmed {
+  color: #2e7d32;
+}
+
+.order-tracking-status-badge--ready {
+  color: #1565c0;
+}
+
+.order-tracking-status-badge--canceled {
+  color: #b3261e;
+}
+
+.order-tracking-status-row button {
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-tracking-status-row button:hover:not(:disabled) {
+  background: #f4e9d8;
+}
+
+.order-tracking-status-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.change-status-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.change-status-modal {
+  width: min(360px, 100%);
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 1.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.change-status-modal h2 {
+  margin: 0 0 1rem;
+  color: #3d2b1f;
+}
+
+.change-status-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.change-status-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.change-status-option:hover:not(:disabled) {
+  background: #f4e9d8;
+}
+
+.change-status-option--suggested {
+  border-color: #3d2b1f;
+  border-width: 2px;
+}
+
+.change-status-option--current {
+  background: #3d2b1f;
+  border-color: #3d2b1f;
+  color: #fff;
+  cursor: default;
+}
+
+.change-status-option:disabled:not(.change-status-option--current) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.change-status-suggested-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #3d2b1f;
+  background: #f4e9d8;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.change-status-option--current .change-status-suggested-tag {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.change-status-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.change-status-actions button {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.change-status-actions button:hover {
+  color: #3d2b1f;
+}
+
+.order-tracking-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 22rem;
+}
+
+.order-tracking-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3d2b1f;
+}
+
+.order-tracking-edit-form input,
+.order-tracking-edit-form textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+}
+
+.order-tracking-edit-form textarea {
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+.order-tracking-edit-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.order-tracking-timeline {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 22rem;
+}
+
+.order-tracking-timeline li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #3d2b1f;
+}
+
+.order-tracking-timeline li span:first-child {
+  font-weight: 700;
+}
+
+.cancel-order-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.cancel-order-modal {
+  width: min(420px, 100%);
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 1.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.cancel-order-modal h2 {
+  margin: 0 0 0.75rem;
+  color: #3d2b1f;
+}
+
+.cancel-order-modal p {
+  margin: 0 0 1rem;
+  color: #3d2b1f;
+}
+
+.cancel-order-input {
+  width: 100%;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+  box-sizing: border-box;
+  margin-bottom: 0.5rem;
+}
+
+.cancel-order-input:focus {
+  outline: 2px solid #b3261e;
+  outline-offset: 1px;
+}
+
+.cancel-order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.cancel-order-cancel-btn {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.cancel-order-cancel-btn:hover {
+  color: #3d2b1f;
+}
+
+.cancel-order-confirm-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  background: #b3261e;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.cancel-order-confirm-btn:hover:not(:disabled) {
+  background: #7a1a13;
+}
+
+.cancel-order-confirm-btn:disabled {
+  background: #b3a394;
+  cursor: not-allowed;
+}
+
+.order-tracking-past-orders h2 {
+  margin: 0 0 1rem;
+  color: #3d2b1f;
+}
+
+.order-tracking-search-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.order-tracking-search-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3d2b1f;
+}
+
+.order-tracking-search-select,
+.order-tracking-search-input {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.4rem 0.5rem;
+  border: 2px solid #3d2b1f;
+  border-radius: 6px;
+  color: #3d2b1f;
+  background: #fff;
+}
+
+.order-tracking-search-input {
+  flex: 1;
+  min-width: 14rem;
+}
+
+.order-tracking-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 2rem;
+}
+
+.order-tracking-search-result {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 2px solid #3d2b1f;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.order-tracking-search-result:hover {
+  background: #f4e9d8;
+}
+
+.order-tracking-search-guest-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #6b7280;
+  background: #f4e9d8;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.order-tracking-search-back {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.75rem;
+}
+
+.order-tracking-search-back:hover {
+  color: #3d2b1f;
+}

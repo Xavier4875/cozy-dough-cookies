@@ -1,0 +1,82 @@
+.order-history-tabs {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 2px solid #eee;
+  margin-bottom: 1.25rem;
+}
+
+.order-history-tab {
+  padding: 0.5rem 0.1rem;
+  margin-bottom: -2px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-history-tab:hover {
+  color: #3d2b1f;
+}
+
+.order-history-tab--active {
+  color: #3d2b1f;
+  border-bottom-color: #3d2b1f;
+}
+
+.receipt-order {
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 3px solid #3d2b1f;
+}
+
+.receipt-order:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.receipt-order-date {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #3d2b1f;
+}
+
+.receipt-order-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+/* Plain colored text, not a badge/pill box — same "don't look like a
+   button" treatment as the equivalent status badge on staff's Order
+   Tracking page. */
+.order-status-badge {
+  font-weight: 700;
+}
+
+.order-status-badge--placed {
+  color: #6b7280;
+}
+
+.order-status-badge--confirmed {
+  color: #2e7d32;
+}
+
+.order-status-badge--ready {
+  color: #1565c0;
+}
+
+.order-status-badge--canceled {
+  color: #b3261e;
+}
+
+.receipt-order-pickup {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+}

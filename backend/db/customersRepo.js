@@ -1,4 +1,4 @@
-import { GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient } from './client.js';
 import { CUSTOMERS_TABLE } from './schema.js';
 
@@ -98,4 +98,17 @@ export async function getCustomerById(customerId) {
     })
   );
   return Item ?? null;
+}
+
+// Every registered account, staff and customer alike — the caller doesn't
+// filter by role, since existence (not order history, not role) is the only
+// bar for showing up in Past Orders search. First full-table Scan in this
+// app. Everywhere else queries a GSI; this is an explicit trade-off for
+// staff's Past Orders search, where there's no name index to query against
+// and, at this app's single-shop scale, fetching everything and filtering in
+// memory is simple and
+// sufficient (same reasoning as Recent Orders' 7-day in-memory filter).
+export async function scanAllCustomers() {
+  const { Items } = await docClient.send(new ScanCommand({ TableName: CUSTOMERS_TABLE }));
+  return Items ?? [];
 }

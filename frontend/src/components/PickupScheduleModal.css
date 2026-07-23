@@ -158,6 +158,24 @@
   cursor: not-allowed;
 }
 
+.pickup-schedule-same-day-link {
+  display: block;
+  border: none;
+  background: none;
+  color: #3d2b1f;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 0.85rem;
+}
+
+.pickup-schedule-same-day-link:hover {
+  color: #6b7280;
+}
+
 .pickup-schedule-order-label {
   font-weight: 600;
   color: #3d2b1f;

@@ -1,5 +1,6 @@
 export const CUSTOMERS_TABLE = process.env.CUSTOMERS_TABLE_NAME || 'CozyDoughCustomers';
 export const ORDERS_TABLE = process.env.ORDERS_TABLE_NAME || 'CozyDoughOrders';
+export const EXTERNAL_SALES_TABLE = process.env.EXTERNAL_SALES_TABLE_NAME || 'CozyDoughExternalSales';
 
 // Customers: one row per real account (customer or staff/admin — role comes
 // from a Cognito group, not from a DynamoDB attribute). Guests never get a
@@ -61,4 +62,15 @@ export const ordersTableDefinition = {
       Projection: { ProjectionType: 'ALL' },
     },
   ],
+};
+
+// Staff-recorded revenue from sales made outside the site — bare
+// { id, amount, createdAt }, no items/flavors. Small and read in full
+// (Sales' /api/sales already scans the whole Orders table the same way),
+// so no GSI.
+export const externalSalesTableDefinition = {
+  TableName: EXTERNAL_SALES_TABLE,
+  BillingMode: 'PAY_PER_REQUEST',
+  AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
+  KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }],
 };

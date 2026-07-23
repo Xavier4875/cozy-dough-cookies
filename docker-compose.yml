@@ -2,12 +2,17 @@ services:
   dynamodb-local:
     image: amazon/dynamodb-local:latest
     container_name: cozy-dough-dynamodb-local
-    # -inMemory avoids DynamoDB Local's on-disk SQLite file entirely — a
-    # volume-mounted -dbPath hit a Docker-Desktop-on-Windows permission issue
-    # (container couldn't open the db file, silently retried forever, which
-    # made every authenticated request hang). Local dev data doesn't need to
-    # survive a container restart anyway — `npm run db:setup` recreates the
-    # tables in seconds.
+    # -inMemory avoids DynamoDB Local's on-disk SQLite file entirely.
+    # -dbPath was tried twice — both a host bind mount and a named volume —
+    # and both hit the same failure on this Docker-Desktop-on-Windows setup:
+    # sqlite4java (the native SQLite binding DynamoDB Local's storage layer
+    # uses) can't open/lock the db file at all against Docker Desktop's
+    # volume backend here ("SQLiteException: [14] unable to open database
+    # file", retried forever, every authenticated request hangs). Not a
+    # permissions-on-a-bind-mount problem specifically — persistent -dbPath
+    # doesn't work in this environment, period. Local dev data doesn't need
+    # to survive a container restart anyway — `npm run db:setup` recreates
+    # the tables in seconds.
     command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
     ports:
       - "8000:8000"

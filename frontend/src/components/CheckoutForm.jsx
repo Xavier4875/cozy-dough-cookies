@@ -44,11 +44,16 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly, order
     setIsScheduleOpen(true);
   }
 
-  function handlePickupConfirm(pickupDate, pickupTime) {
+  function handlePickupConfirm(pickupDate, pickupTime, sameDay) {
     setIsScheduleOpen(false);
     onSubmit({
       contact: resolveContact(),
-      fulfillment: { method: 'pickup', pickupDate, pickupTime },
+      // sameDay only matters to the backend's validation (it relaxes the
+      // 24-hour notice floor for a pickup date that's genuinely today) —
+      // it's never persisted on the order; "was this same-day" is instead
+      // derived wherever pickup time is displayed by comparing pickupDate
+      // to the order's own placement date.
+      fulfillment: { method: 'pickup', pickupDate, pickupTime, ...(sameDay && { sameDay: true }) },
     });
   }
 

@@ -35,9 +35,20 @@ function AccountDrawerContent() {
         <Link to="/rewards" className="account-drawer-link" onClick={closeAccount}>
           Rewards
         </Link>
-        <Link to="/order-history" className="account-drawer-link" onClick={closeAccount}>
-          Order History
-        </Link>
+        {user.role === 'staff' ? (
+          <>
+            <Link to="/order-tracking" className="account-drawer-link" onClick={closeAccount}>
+              Order Tracking
+            </Link>
+            <Link to="/sales" className="account-drawer-link" onClick={closeAccount}>
+              Sales
+            </Link>
+          </>
+        ) : (
+          <Link to="/order-history" className="account-drawer-link" onClick={closeAccount}>
+            My Orders
+          </Link>
+        )}
         <button
           className="account-drawer-link account-drawer-link--danger account-drawer-link--button"
           onClick={handleDeleteAccountClick}

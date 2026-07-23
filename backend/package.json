@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
-    "db:setup": "node scripts/createTables.js"
+    "db:setup": "node scripts/createTables.js",
+    "db:local": "node scripts/start-dynamodb-local.js",
+    "db:backfill-customers": "node scripts/backfillCustomersFromCognito.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1091.0",
     "@aws-sdk/client-dynamodb": "^3.1086.0",
     "@aws-sdk/lib-dynamodb": "^3.1086.0",
     "aws-jwt-verify": "^5.2.1",

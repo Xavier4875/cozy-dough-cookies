@@ -9,3 +9,7 @@ dist
 Thumbs.db
 *.log
 .claude/
+
+# Extracted DynamoDBLocal.jar/libs + its persisted local dev data — neither
+# belongs in git; setup-dynamodb-jar.js re-extracts the jar on demand.
+dynamodb-local/

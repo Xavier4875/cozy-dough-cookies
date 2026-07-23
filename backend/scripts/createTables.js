@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { CreateTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
 import { baseClient } from '../db/client.js';
-import { customersTableDefinition, ordersTableDefinition } from '../db/schema.js';
+import { customersTableDefinition, ordersTableDefinition, externalSalesTableDefinition } from '../db/schema.js';
 
 async function createIfMissing(definition) {
   const { TableNames } = await baseClient.send(new ListTablesCommand({}));
@@ -16,6 +16,7 @@ async function createIfMissing(definition) {
 async function main() {
   await createIfMissing(customersTableDefinition);
   await createIfMissing(ordersTableDefinition);
+  await createIfMissing(externalSalesTableDefinition);
 }
 
 main().catch((err) => {
