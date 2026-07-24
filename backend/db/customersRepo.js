@@ -1,5 +1,5 @@
-import { GetCommand, UpdateCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient } from './client.js';
+import { GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, scanAll } from './client.js';
 import { CUSTOMERS_TABLE } from './schema.js';
 
 // An Update (not a Put) on purpose: sync runs on every sign-in, and a full
@@ -108,7 +108,7 @@ export async function getCustomerById(customerId) {
 // and, at this app's single-shop scale, fetching everything and filtering in
 // memory is simple and
 // sufficient (same reasoning as Recent Orders' 7-day in-memory filter).
+// Paged via scanAll — a plain single Scan silently truncates at 1MB.
 export async function scanAllCustomers() {
-  const { Items } = await docClient.send(new ScanCommand({ TableName: CUSTOMERS_TABLE }));
-  return Items ?? [];
+  return scanAll({ TableName: CUSTOMERS_TABLE });
 }

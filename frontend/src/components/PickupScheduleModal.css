@@ -123,6 +123,12 @@
   margin: 1rem 0 0.75rem;
 }
 
+.pickup-schedule-time-error {
+  color: #b3261e;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
 .pickup-schedule-time-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -7,8 +7,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
-import { PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient } from './db/client.js';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, scanAll } from './db/client.js';
 import { EXTERNAL_SALES_TABLE } from './db/schema.js';
 import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS } from './models/Cookie.js';
 import { Order } from './models/Order.js';
@@ -39,6 +39,7 @@ import { addToCustomerGroup } from './auth/cognitoGroup.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
 import { validateAddress } from './shipping/usps.js';
 import { enqueue as enqueueAddressRetry } from './shipping/retryQueue.js';
+import { enqueue as enqueueEarnRetry } from './rewards/earnRetryQueue.js';
 import { checkIpRateLimit } from './shipping/ipRateLimit.js';
 import {
   EMAIL_RE,
@@ -472,18 +473,23 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     // the orders already saved, the order still succeeds: points are a perk,
     // the order is the thing that must not fail. (Free reward items already
     // contribute $0 to grandTotal, so earning needs no adjustment for them.)
+    // A failure here queues an automatic retry (earnRetryQueue.js) rather
+    // than just being logged and dropped — same "don't block the order, but
+    // don't silently lose the side effect either" shape as the shipping
+    // address retry queue above.
     let rewards;
     if (req.user) {
       rewards = {};
       if (totalPointsRequired > 0) rewards.spent = totalPointsRequired;
+      const pointsEarned = Math.round(cart.grandTotal);
       try {
-        const pointsEarned = Math.round(cart.grandTotal);
         const balance = await addRewardsPoints(req.user.customerId, pointsEarned);
         rewards.earned = pointsEarned;
         rewards.balance = balance;
       } catch (err) {
         console.error('Failed to award rewards points:', err);
         if (balanceAfterSpend !== null) rewards.balance = balanceAfterSpend;
+        enqueueEarnRetry(req.user.customerId, pointsEarned);
       }
     }
 
@@ -588,6 +594,10 @@ const SALES_PERIODS = ['today', 'week', 'month', 'year', 'total'];
 // weights, just re-expressed for the stored shape.
 const SIZE_LABEL_UNITS = { Single: 1, 'Half Dozen': 6, 'Full Dozen': 12 };
 
+// 'month' and 'year' aren't handled here — they take an explicit year (and,
+// for 'month', a month) rather than always meaning "now"'s period, so each
+// needs its own start *and* end bound rather than fitting this open-ended
+// shape (see the route below).
 function salesPeriodStart(period, now) {
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   switch (period) {
@@ -598,74 +608,149 @@ function salesPeriodStart(period, now) {
       start.setDate(start.getDate() - start.getDay()); // most recent Sunday
       return start;
     }
-    case 'month':
-      return new Date(now.getFullYear(), now.getMonth(), 1);
-    case 'year':
-      return new Date(now.getFullYear(), 0, 1);
     default:
       return null; // 'total' — no lower bound
   }
 }
 
+// Shared by the top-level period totals and week's per-day breakdown below
+// — same rules either way: canceled orders never happened, so they're
+// excluded entirely; reward-redeemed line items (id starting with "reward-")
+// are excluded from both rankings — their composite flavor label ("Free Half
+// Dozen: 3 Chocolate Chip, 3 M&M") doesn't cleanly attribute to one
+// flavor/size, and their $0 price already keeps revenue correct whether
+// they're counted or not.
+function aggregateSales(orders, externalSales) {
+  const externalRevenue = externalSales.reduce((sum, sale) => sum + sale.amount, 0);
+  const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0) + externalRevenue;
+
+  const itemTotals = new Map(); // `${flavor}|${sizeLabel}` -> { flavor, sizeLabel, qty, revenue }
+  const flavorTotals = new Map(); // flavor -> cookies
+
+  for (const order of orders) {
+    for (const item of order.items) {
+      if (item.id.startsWith('reward-')) continue;
+      const itemKey = `${item.flavor}|${item.sizeLabel}`;
+      const itemEntry =
+        itemTotals.get(itemKey) || { flavor: item.flavor, sizeLabel: item.sizeLabel, qty: 0, revenue: 0 };
+      itemEntry.qty += item.qty;
+      itemEntry.revenue += item.price * item.qty;
+      itemTotals.set(itemKey, itemEntry);
+
+      const cookies = (SIZE_LABEL_UNITS[item.sizeLabel] || 0) * item.qty;
+      flavorTotals.set(item.flavor, (flavorTotals.get(item.flavor) || 0) + cookies);
+    }
+  }
+
+  const itemsSold = [...itemTotals.values()].sort((a, b) => b.qty - a.qty || a.flavor.localeCompare(b.flavor));
+  const flavorsSold = [...flavorTotals.entries()]
+    .map(([flavor, cookies]) => ({ flavor, cookies }))
+    .sort((a, b) => b.cookies - a.cookies || a.flavor.localeCompare(b.flavor));
+
+  return { totalRevenue, externalRevenue, itemsSold, flavorsSold };
+}
+
 // Staff's Sales dashboard — total revenue plus two rankings (by menu item,
-// and by individual cookie count) for a given period. Canceled orders never
-// happened, so they're excluded entirely; reward-redeemed line items (id
-// starting with "reward-") are excluded from both rankings — their
-// composite flavor label ("Free Half Dozen: 3 Chocolate Chip, 3 M&M")
-// doesn't cleanly attribute to one flavor/size, and their $0 price already
-// keeps revenue correct whether they're counted or not. Filtered by
-// createdAt (when the order was placed), not pickup/fulfillment time — this
-// app's mock checkout already treats payment as taken at order time. No GSI
-// range-filters on createdAt alone (and "total" needs everything anyway),
-// so this scans the whole table like Past Orders search's helpers do.
+// and by individual cookie count) for a given period, via aggregateSales
+// above. Filtered by createdAt (when the order was placed), not
+// pickup/fulfillment time — this app's mock checkout already treats payment
+// as taken at order time. No GSI range-filters on createdAt alone (and
+// "total" needs everything anyway), so this scans the whole table like Past
+// Orders search's helpers do.
+//
+// The 'week' period additionally splits into a `days` array (Sunday through
+// Saturday, one aggregateSales result each) for Sales.jsx's day-by-day
+// breakdown — built by slicing the already-fetched week orders/externalSales
+// rather than a second scan.
+//
+// 'month' takes optional ?year=&month= (1-12), and 'year' takes optional
+// ?year=, both defaulting to real "now" — this is what lets Sales.jsx's
+// Monthly/Yearly tabs page back and forward through arbitrary
+// months/years rather than only ever showing "this month"/"this year".
+// Unlike the other periods these need an explicit upper bound too (the
+// month's or year's end), not just "so far" — though for the current
+// month/year that upper bound never actually excludes anything, since no
+// order can exist later than right now anyway.
 app.get('/api/sales', requireAuth, requireActiveCustomer, requireStaff, async (req, res) => {
   const period = req.query.period;
   if (!SALES_PERIODS.includes(period)) {
     return res.status(400).json({ error: 'period must be one of today, week, month, year, total.' });
   }
+
+  const now = new Date();
+  let periodStart;
+  let periodEnd = null;
+  let year;
+  let month;
+  if (period === 'month') {
+    year = req.query.year !== undefined ? Number(req.query.year) : now.getFullYear();
+    month = req.query.month !== undefined ? Number(req.query.month) : now.getMonth() + 1;
+    if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'year must be 2000-2100 and month must be 1-12.' });
+    }
+    periodStart = new Date(year, month - 1, 1);
+    periodEnd = new Date(year, month, 1);
+  } else if (period === 'year') {
+    year = req.query.year !== undefined ? Number(req.query.year) : now.getFullYear();
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ error: 'year must be 2000-2100.' });
+    }
+    periodStart = new Date(year, 0, 1);
+    periodEnd = new Date(year + 1, 0, 1);
+  } else {
+    periodStart = salesPeriodStart(period, now);
+  }
+
   try {
-    const [allOrders, externalSalesResult] = await Promise.all([
+    const [allOrders, allExternalSales] = await Promise.all([
       scanAllOrders(),
-      docClient.send(new ScanCommand({ TableName: EXTERNAL_SALES_TABLE })),
+      scanAll({ TableName: EXTERNAL_SALES_TABLE }),
     ]);
-    const periodStart = salesPeriodStart(period, new Date());
     const orders = allOrders.filter(
-      (order) => order.status !== 'canceled' && (periodStart === null || new Date(order.createdAt) >= periodStart)
+      (order) =>
+        order.status !== 'canceled' &&
+        (periodStart === null || new Date(order.createdAt) >= periodStart) &&
+        (periodEnd === null || new Date(order.createdAt) < periodEnd)
     );
     // Staff-recorded revenue from sales made outside the site — counted
     // toward totalRevenue only, never itemsSold/flavorsSold (no items exist
     // for these).
-    const externalSales = (externalSalesResult.Items ?? []).filter(
-      (sale) => periodStart === null || new Date(sale.createdAt) >= periodStart
+    const externalSales = allExternalSales.filter(
+      (sale) =>
+        (periodStart === null || new Date(sale.createdAt) >= periodStart) &&
+        (periodEnd === null || new Date(sale.createdAt) < periodEnd)
     );
 
-    const externalRevenue = externalSales.reduce((sum, sale) => sum + sale.amount, 0);
-    const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0) + externalRevenue;
-
-    const itemTotals = new Map(); // `${flavor}|${sizeLabel}` -> { flavor, sizeLabel, qty, revenue }
-    const flavorTotals = new Map(); // flavor -> cookies
-
-    for (const order of orders) {
-      for (const item of order.items) {
-        if (item.id.startsWith('reward-')) continue;
-        const itemKey = `${item.flavor}|${item.sizeLabel}`;
-        const itemEntry =
-          itemTotals.get(itemKey) || { flavor: item.flavor, sizeLabel: item.sizeLabel, qty: 0, revenue: 0 };
-        itemEntry.qty += item.qty;
-        itemEntry.revenue += item.price * item.qty;
-        itemTotals.set(itemKey, itemEntry);
-
-        const cookies = (SIZE_LABEL_UNITS[item.sizeLabel] || 0) * item.qty;
-        flavorTotals.set(item.flavor, (flavorTotals.get(item.flavor) || 0) + cookies);
+    let days;
+    if (period === 'week') {
+      days = [];
+      for (let i = 0; i < 7; i++) {
+        const dayStart = new Date(periodStart);
+        dayStart.setDate(dayStart.getDate() + i);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const dayOrders = orders.filter((o) => {
+          const t = new Date(o.createdAt);
+          return t >= dayStart && t < dayEnd;
+        });
+        const dayExternalSales = externalSales.filter((s) => {
+          const t = new Date(s.createdAt);
+          return t >= dayStart && t < dayEnd;
+        });
+        days.push({
+          date: `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(2, '0')}-${String(dayStart.getDate()).padStart(2, '0')}`,
+          ...aggregateSales(dayOrders, dayExternalSales),
+        });
       }
     }
 
-    const itemsSold = [...itemTotals.values()].sort((a, b) => b.qty - a.qty || a.flavor.localeCompare(b.flavor));
-    const flavorsSold = [...flavorTotals.entries()]
-      .map(([flavor, cookies]) => ({ flavor, cookies }))
-      .sort((a, b) => b.cookies - a.cookies || a.flavor.localeCompare(b.flavor));
-
-    res.json({ period, totalRevenue, externalRevenue, itemsSold, flavorsSold });
+    res.json({
+      period,
+      ...(period === 'month' && { year, month }),
+      ...(period === 'year' && { year }),
+      ...aggregateSales(orders, externalSales),
+      ...(days && { days }),
+    });
   } catch (err) {
     console.error('Failed to compute sales:', err);
     res.status(500).json({ error: 'Failed to compute sales.' });
@@ -735,7 +820,11 @@ app.post(
         return res.status(400).json({ error: 'This order is not a pickup order.' });
       }
       const { pickupDate, pickupTime, note } = req.body;
-      const pickupError = validatePickupDateTime(pickupDate, pickupTime);
+      // sameDay is always passed here (not read from the request) — the
+      // isActuallyToday check inside validatePickupDateTime is what actually
+      // gates the notice-floor bypass, so a staff edit to any date that isn't
+      // really today still gets held to the normal 24-hour rule.
+      const pickupError = validatePickupDateTime(pickupDate, pickupTime, true);
       if (pickupError) {
         return res.status(400).json({ error: pickupError });
       }
@@ -839,12 +928,11 @@ app.post(
 );
 
 // The other terminal transition: stopping an order entirely, from any active
-// stage (unlike /complete, this doesn't require reaching 'ready' first — a
-// customer can call to cancel at any point before their order is done). Also
-// one-way: once canceled, set-status's guard above refuses to move it
-// anywhere else. Existing confirmedAt/readyAt are left untouched — "this was
-// confirmed, then canceled" is real history worth keeping, not something to
-// erase.
+// stage (unlike /complete, this doesn't require reaching 'ready' first —
+// staff can cancel at any point before an order is done). Also one-way: once
+// canceled, set-status's guard above refuses to move it anywhere else.
+// Existing confirmedAt/readyAt are left untouched — "this was confirmed,
+// then canceled" is real history worth keeping, not something to erase.
 app.post(
   '/api/orders/:id/cancel',
   requireAuth,

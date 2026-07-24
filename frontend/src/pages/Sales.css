@@ -38,6 +38,80 @@
   background: #f4e9d8;
 }
 
+.sales-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sales-month-arrow {
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sales-month-arrow:hover {
+  background: #f4e9d8;
+}
+
+.sales-month-label {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #3d2b1f;
+  min-width: 11rem;
+  text-align: center;
+}
+
+.sales-month-select,
+.sales-year-select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 6px;
+  color: #3d2b1f;
+}
+
+.sales-month-select,
+.sales-year-select--push-right {
+  margin-left: auto;
+}
+
+/* Matches useIsMobile.js's MOBILE_BREAKPOINT_PX. Below this width, "+ Add
+   Sale" and the month/year dropdowns no longer fit on the same row as the
+   tabs/arrows without overflowing, so each stacks onto its own full-width
+   row. */
+@media (max-width: 767px) {
+  .sales-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .sales-tabs {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .sales-add-btn {
+    width: 100%;
+    margin-bottom: 0;
+  }
+
+  .sales-month-nav {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .sales-month-select,
+  .sales-year-select {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
 .sales-tab {
   padding: 0.5rem 0.1rem;
   margin-bottom: -2px;
@@ -75,6 +149,16 @@
 
 .sales-dropdown {
   margin-top: 2.5rem;
+}
+
+.sales-day-section {
+  border-top: 3px solid #3d2b1f;
+  padding-top: 1.25rem;
+}
+
+.sales-day-heading {
+  color: #3d2b1f;
+  margin: 0 0 1rem;
 }
 
 .sales-section-title {

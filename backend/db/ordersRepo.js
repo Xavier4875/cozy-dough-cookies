@@ -1,5 +1,5 @@
-import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient } from './client.js';
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, scanAll } from './client.js';
 import { ORDERS_TABLE } from './schema.js';
 
 export async function createOrder(record) {
@@ -112,14 +112,13 @@ export async function queryOrdersByEmail(email) {
 // search to build the "default guest list" and to name-match guests, since
 // there's no index over contact names to query directly. Same
 // first-full-table-Scan trade-off as scanAllCustomers (customersRepo.js).
+// Paged via scanAll — FilterExpression is applied after each page is read,
+// not before, so a plain single Scan would still silently truncate at 1MB.
 export async function scanGuestOrders() {
-  const { Items } = await docClient.send(
-    new ScanCommand({
-      TableName: ORDERS_TABLE,
-      FilterExpression: 'attribute_not_exists(customerId)',
-    })
-  );
-  return Items ?? [];
+  return scanAll({
+    TableName: ORDERS_TABLE,
+    FilterExpression: 'attribute_not_exists(customerId)',
+  });
 }
 
 const ACTIVE_STATUSES = ['placed', 'confirmed', 'ready'];
@@ -189,8 +188,9 @@ export async function queryCanceledOrders() {
 // period (even "Today" can't be answered by any existing GSI, since none of
 // them range on createdAt alone; "Total" inherently needs everything
 // anyway). Same full-table-Scan trade-off as scanGuestOrders/
-// scanAllCustomers, filtered/aggregated by the caller in memory.
+// scanAllCustomers, filtered/aggregated by the caller in memory. Paged via
+// scanAll — a plain single Scan silently truncates at 1MB, which Total's
+// "everything, forever" premise can't tolerate once the table grows.
 export async function scanAllOrders() {
-  const { Items } = await docClient.send(new ScanCommand({ TableName: ORDERS_TABLE }));
-  return Items ?? [];
+  return scanAll({ TableName: ORDERS_TABLE });
 }

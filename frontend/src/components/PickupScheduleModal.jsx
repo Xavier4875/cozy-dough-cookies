@@ -89,12 +89,27 @@ function getTimeSlots(date, now, minNoticeMs = MIN_NOTICE_MS) {
   return slots;
 }
 
+// Re-checks a selected slot against a freshly-read Date.now(), not the
+// possibly-minutes-stale `now` the time grid was rendered with — the grid's
+// "enabled" flags only get recomputed on a re-render, so a slot picked while
+// valid can still tip past the notice floor if the customer idles on the
+// confirm step before actually submitting. The server independently
+// re-validates this exact rule regardless (validatePickupDateTime in
+// backend/index.js), so this is purely about failing fast in the UI instead
+// of letting a stale click reach the network first.
+function isSlotStillValid(date, time, minNoticeMs) {
+  const [hour, minute] = time.split(':').map(Number);
+  const slotDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
+  return slotDateTime.getTime() - Date.now() >= minNoticeMs;
+}
+
 function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
   const [step, setStep] = useState('date');
   const [viewedMonth, setViewedMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [sameDayPickup, setSameDayPickup] = useState(false);
+  const [timeError, setTimeError] = useState('');
 
   if (!isOpen) return null;
 
@@ -104,7 +119,22 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
     setSelectedDate(null);
     setSelectedTime(null);
     setSameDayPickup(false);
+    setTimeError('');
     onCancel();
+  }
+
+  // Re-validated right here rather than trusting whatever was true when the
+  // time grid last rendered — see isSlotStillValid's comment. A slot that's
+  // since slipped past the notice floor bounces the customer back to the
+  // time step with an explanation instead of submitting a doomed request.
+  function handleConfirmClick() {
+    if (!isSlotStillValid(selectedDate, selectedTime, sameDayPickup ? 0 : MIN_NOTICE_MS)) {
+      setSelectedTime(null);
+      setTimeError('That time has since passed — please pick a new one.');
+      setStep('time');
+      return;
+    }
+    onConfirm(toDateKey(selectedDate), selectedTime, sameDayPickup);
   }
 
   // The normal calendar never allows selecting today (see isDateSelectable
@@ -211,6 +241,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
             <p className="pickup-schedule-subtitle">
               {sameDayPickup ? 'Same Day Pickup' : formatDateLong(selectedDate)}
             </p>
+            {timeError && <p className="pickup-schedule-time-error">{timeError}</p>}
             <div className="pickup-schedule-time-grid">
               {getTimeSlots(selectedDate, now, sameDayPickup ? 0 : MIN_NOTICE_MS).map((slot) => (
                 <button
@@ -224,6 +255,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
                   disabled={!slot.enabled}
                   onClick={() => {
                     setSelectedTime(slot.time);
+                    setTimeError('');
                     setStep('confirm');
                   }}
                 >
@@ -268,11 +300,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
               <button type="button" className="pickup-schedule-cancel-btn" onClick={() => setStep('time')}>
                 Back
               </button>
-              <button
-                type="button"
-                className="checkout-btn"
-                onClick={() => onConfirm(toDateKey(selectedDate), selectedTime, sameDayPickup)}
-              >
+              <button type="button" className="checkout-btn" onClick={handleConfirmClick}>
                 Confirm &amp; Place Order
               </button>
             </div>

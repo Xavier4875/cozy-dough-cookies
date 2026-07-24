@@ -359,6 +359,42 @@
   color: #3d2b1f;
 }
 
+.order-tracking-time-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.order-tracking-time-slot {
+  border: 1px solid #d8c3a5;
+  background: #fff;
+  color: #3d2b1f;
+  border-radius: 6px;
+  padding: 0.5rem 0.25rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.order-tracking-time-slot:hover:not(:disabled) {
+  background: #f4e9d8;
+}
+
+.order-tracking-time-slot--disabled {
+  color: #d8c3a5;
+  border-color: #eee;
+  cursor: not-allowed;
+}
+
+.order-tracking-time-slot--selected {
+  background: #3d2b1f;
+  border-color: #3d2b1f;
+  color: #fffaf3;
+  font-weight: 700;
+}
+
 .order-tracking-edit-form textarea {
   min-height: 3.5rem;
   resize: vertical;
