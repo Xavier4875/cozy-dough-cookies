@@ -16,3 +16,30 @@ services:
     command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
     ports:
       - "8000:8000"
+    # Only started when explicitly asked for (`docker compose --profile
+    # local-dynamodb up`) — backend/.env already points the app at real AWS
+    # DynamoDB, so a plain `docker compose up` shouldn't also spin up an
+    # emulator nothing's configured to use. To actually use this instead of
+    # real AWS, also override DYNAMODB_ENDPOINT to http://dynamodb-local:8000
+    # (the container name, not localhost — from inside the backend
+    # container, localhost means itself, not this sibling container).
+    profiles:
+      - local-dynamodb
+
+  backend:
+    build:
+      context: ./backend
+    container_name: cozy-dough-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: cozy-dough-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"

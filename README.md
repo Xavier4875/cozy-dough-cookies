@@ -30,11 +30,11 @@ Creates the `CozyDoughCustomers`/`CozyDoughOrders` tables. Safe to re-run any ti
 <summary>Alternative: DynamoDB Local via Docker (no persistence)</summary>
 
 ```
-docker compose up -d
+docker compose --profile local-dynamodb up -d
 cd backend
 npm run db:setup
 ```
-Simpler if Docker's the only thing installed, but data resets on every container restart — DynamoDB Local's SQLite backend can't open its db file against Docker Desktop's volume backend on Windows (tried both a bind mount and a named volume), so `docker-compose.yml` runs `-inMemory` rather than hanging on every request.
+Simpler if Docker's the only thing installed, but data resets on every container restart — DynamoDB Local's SQLite backend can't open its db file against Docker Desktop's volume backend on Windows (tried both a bind mount and a named volume), so `docker-compose.yml` runs `-inMemory` rather than hanging on every request. The `--profile local-dynamodb` flag is required — this service is opt-in, not part of the default `docker compose up` (see below), since the app itself now talks to real AWS DynamoDB by default.
 </details>
 
 **Backend**
@@ -56,9 +56,16 @@ Runs on http://localhost:5173. The dev server proxies `/api/*` requests to the b
 
 Open http://localhost:5173 — you should see "Backend status: Cozy Dough Cookies API is running" and a stubbed cookie list. That confirms the frontend and backend are talking to each other.
 
+## Full stack via Docker Compose
+
+```
+docker compose up -d --build backend frontend
+```
+Builds and runs the whole app as two containers: backend on http://localhost:4000, frontend (a production Vite build served by nginx, with `/api/*` reverse-proxied to the backend container — see `frontend/nginx.conf`) on http://localhost:8080. This talks to real AWS (DynamoDB, Cognito, SES, USPS) by default via `backend/.env` — it does **not** start `dynamodb-local` (that stays behind the `--profile local-dynamodb` flag above, since nothing in this mode is configured to use it). `docker compose down` tears both containers down.
+
 ## What's next
 
 - **Step 2 ✅:** DynamoDB schema designed — Customers (accounts, role from a Cognito group) and Orders (customer, admin, and guest orders in one table) — see `backend/db/schema.js`.
-- **Step 3 ✅:** `/api/checkout` persists real orders to DynamoDB Local, with a checkout form collecting contact info and pickup/shipping fulfillment. The product catalog itself (`/api/products`) stays static/in-code for now — it's not customer or order data.
-- **Step 4:** Add Cognito (real accounts, guest checkout stays optional) and Stripe — Payment Intents on the backend, Stripe Elements on the frontend.
-- **Step 5:** Deploy — S3 + CloudFront for the frontend, Lambda + API Gateway (or ECS) for the backend, real DynamoDB tables, full Docker Compose stack (backend + frontend + DynamoDB) as the container images pushed to production.
+- **Step 3 ✅:** `/api/checkout` persists real orders, with a checkout form collecting contact info and pickup/shipping fulfillment. The product catalog itself (`/api/products`) stays static/in-code for now — it's not customer or order data.
+- **Step 4:** Cognito ✅ (real accounts, guest checkout stays optional, guest checkout gated behind an SES-emailed verification code). Stripe still pending — Payment Intents on the backend, Stripe Elements on the frontend; checkout is a mock ("no payment was actually taken") until then.
+- **Step 5 (in progress):** Real DynamoDB tables ✅, full Docker Compose stack (backend + frontend) ✅. Still pending: actually hosting those container images on AWS (ECS/Fargate or similar) instead of running them locally, and lifting SES out of sandbox mode (currently can only email addresses individually verified in SES).
