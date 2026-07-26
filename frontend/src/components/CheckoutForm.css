@@ -69,6 +69,24 @@
   padding: 0.5rem 0;
 }
 
+.checkout-form-resend {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: #3d2b1f;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  margin-top: -0.4rem;
+}
+
+.checkout-form-resend:disabled {
+  color: #b3a394;
+  cursor: not-allowed;
+}
+
 .checkout-form-actions .checkout-btn {
   margin-top: 0;
   width: auto;

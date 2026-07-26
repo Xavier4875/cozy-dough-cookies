@@ -34,13 +34,27 @@ import {
   redeemRewardsPoints,
   deleteCustomer,
 } from './db/customersRepo.js';
+import {
+  putCode as putVerificationCode,
+  getVerification,
+  markVerified,
+  recordFailedAttempt,
+  isCurrentlyVerified,
+} from './db/verificationRepo.js';
 import { optionalAuth, requireAuth, requireActiveCustomer, requireStaff } from './middleware/auth.js';
+import { installAsyncErrorHandling } from './middleware/asyncHandler.js';
 import { addToCustomerGroup } from './auth/cognitoGroup.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
 import { validateAddress } from './shipping/usps.js';
 import { enqueue as enqueueAddressRetry } from './shipping/retryQueue.js';
 import { enqueue as enqueueEarnRetry } from './rewards/earnRetryQueue.js';
 import { checkIpRateLimit } from './shipping/ipRateLimit.js';
+import { checkEmailSendRateLimit } from './email/rateLimit.js';
+import { sendVerificationCodeEmail, sendEmail } from './email/ses.js';
+import { buildReceiptEmail } from './email/receipt.js';
+import { buildPickupTimeEmail, buildStatusChangeEmail } from './email/orderStatusEmail.js';
+import { buildStaffNewOrderEmail } from './email/staffNotification.js';
+import { enqueue as enqueueEmailRetry } from './email/emailRetryQueue.js';
 import {
   EMAIL_RE,
   PICKUP_DATE_RE,
@@ -52,6 +66,7 @@ import {
   ZIP_RE,
   UNITS_PER_SIZE,
   MIN_ORDER_SUBTOTAL,
+  EMAIL_VERIFICATION_MAX_ATTEMPTS,
 } from './constants.js';
 
 // Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
@@ -153,6 +168,12 @@ function validateFulfillment(fulfillment) {
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Must run before any app.get/post/put/patch/delete calls below — it
+// replaces those methods so every route registered afterward automatically
+// forwards a rejected promise to Express's error handler instead of
+// crashing the whole process (see middleware/asyncHandler.js).
+installAsyncErrorHandling(app);
+
 app.use(cors());
 app.use(express.json());
 
@@ -214,6 +235,59 @@ app.post('/api/shipping/validate-address', async (req, res) => {
   res.json(result);
 });
 
+function generateVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// Guest checkout only — a signed-in customer already proved their email at
+// Cognito signup. Sends a 6-digit code via SES; the corresponding record is
+// only written after the send succeeds, so a failed send never leaves a
+// "valid" code sitting around that was never actually delivered.
+app.post('/api/email-verification/send', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'A valid email is required.' });
+  }
+  if (!checkEmailSendRateLimit(email)) {
+    return res.status(429).json({
+      error: 'Too many verification requests for this email. Please try again later.',
+    });
+  }
+
+  const code = generateVerificationCode();
+  try {
+    await sendVerificationCodeEmail(email, code);
+  } catch (err) {
+    console.error('Failed to send verification email:', err);
+    return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
+  }
+  await putVerificationCode(email, code);
+  res.json({ sent: true });
+});
+
+app.post('/api/email-verification/confirm', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.code || '').trim();
+  if (!EMAIL_RE.test(email) || !code) {
+    return res.status(400).json({ error: 'Email and code are required.' });
+  }
+
+  const record = await getVerification(email);
+  if (!record || record.expiresAt * 1000 < Date.now()) {
+    return res.status(400).json({ error: 'That code has expired. Please request a new one.' });
+  }
+  if (record.attempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+    return res.status(400).json({ error: 'Too many incorrect attempts. Please request a new code.' });
+  }
+
+  const ok = await markVerified(email, code, EMAIL_VERIFICATION_MAX_ATTEMPTS);
+  if (!ok) {
+    await recordFailedAttempt(email);
+    return res.status(400).json({ error: 'Incorrect code. Please try again.' });
+  }
+  res.json({ verified: true });
+});
+
 // Real persistence, no real payment yet — prices/totals are computed
 // server-side from PRODUCTS so the client can't just send whatever total it
 // wants, and every order gets written to DynamoDB. Guest checkout stays
@@ -269,6 +343,16 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     lastName: String(req.body.contact.lastName).trim(),
     email: String(req.body.contact.email).trim(),
   };
+
+  // Guests must prove they own the inbox they're checking out with —
+  // signed-in customers already did this once at signup, via Cognito.
+  if (!req.user) {
+    const verification = await getVerification(contact.email.toLowerCase());
+    if (!isCurrentlyVerified(verification)) {
+      return res.status(400).json({ error: 'Please verify your email before checking out.' });
+    }
+  }
+
   const fulfillment =
     req.body.fulfillment.method === 'shipping'
       ? {
@@ -466,6 +550,30 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
 
     if (addressNeedsRetry) {
       enqueueAddressRetry(persistedOrders.map((o) => o.orderId), fulfillment.shippingAddress);
+    }
+
+    // A receipt is a nice-to-have, not part of the transaction itself — a
+    // failed send (or SES being unconfigured entirely, e.g. local dev)
+    // must never fail an otherwise-successful checkout. Built once so a
+    // retry re-sends the exact same content rather than re-deriving it.
+    const receipt = buildReceiptEmail({ contact, fulfillment, orders: persistedOrders });
+    try {
+      await sendEmail(contact.email, receipt.subject, receipt.text, receipt.html);
+    } catch (err) {
+      console.error('Failed to send receipt email:', err);
+      enqueueEmailRetry(contact.email, receipt.subject, receipt.text, receipt.html);
+    }
+
+    // Same best-effort treatment for staff's new-order notification — a
+    // failed/unconfigured send here must not fail the checkout either.
+    if (process.env.STAFF_NOTIFICATION_EMAIL) {
+      const staffEmail = buildStaffNewOrderEmail({ contact, fulfillment, orders: persistedOrders });
+      try {
+        await sendEmail(process.env.STAFF_NOTIFICATION_EMAIL, staffEmail.subject, staffEmail.text, staffEmail.html);
+      } catch (err) {
+        console.error('Failed to send staff new-order notification:', err);
+        enqueueEmailRetry(process.env.STAFF_NOTIFICATION_EMAIL, staffEmail.subject, staffEmail.text, staffEmail.html);
+      }
     }
 
     // Signed-in customers earn 1 point per $1 spent. Guests earn nothing —
@@ -801,10 +909,11 @@ app.get('/api/orders/:id', requireAuth, requireActiveCustomer, async (req, res) 
 // optional customer-visible note) for an edit — either way the result is the
 // same: a re-validated pickup time. Staff edits are held to the exact same
 // business-hours/notice-window rules a customer's own request would be
-// (validatePickupDateTime), not a looser staff-only path. Purely a
-// fulfillment-record update — order.status is a separate concern, entirely
-// owned by set-status/complete below, so this can be called at any stage
-// (not just 'placed') without side effects on where the order sits.
+// (validatePickupDateTime), not a looser staff-only path. Confirming/editing
+// the pickup time doubles as confirming the order itself — staff shouldn't
+// need a separate "Change Order Status" click for what's really one action.
+// Only bumps status forward out of 'placed'; an order already at 'confirmed'
+// or beyond isn't moved backward or re-stamped by a later pickup-time edit.
 app.post(
   '/api/orders/:id/confirm-pickup',
   requireAuth,
@@ -828,14 +937,34 @@ app.post(
       if (pickupError) {
         return res.status(400).json({ error: pickupError });
       }
+      const changed = pickupDate !== order.fulfillment.pickupDate || pickupTime !== order.fulfillment.pickupTime;
+      const staffNote = note && String(note).trim() ? String(note).trim() : undefined;
       const fulfillment = {
         method: 'pickup',
         pickupDate,
         pickupTime,
-        ...(note && String(note).trim() && { staffNote: String(note).trim() }),
+        ...(staffNote && { staffNote }),
       };
       await updateOrderFulfillment(req.params.id, fulfillment);
-      res.json({ fulfillment });
+
+      let statusUpdate = null;
+      if (order.status === 'placed') {
+        statusUpdate = { status: 'confirmed', confirmedAt: order.confirmedAt || new Date().toISOString(), readyAt: null };
+        await setOrderStatus(req.params.id, statusUpdate);
+      }
+
+      // Only the pickup-time email, not also a separate status-change one —
+      // its own message already says "confirmed" (see buildPickupTimeEmail),
+      // so a second email here would just repeat the same news twice.
+      const email = buildPickupTimeEmail({ contact: order.contact, pickupDate, pickupTime, changed, note: staffNote, order });
+      try {
+        await sendEmail(order.contact.email, email.subject, email.text, email.html);
+      } catch (err) {
+        console.error('Failed to send pickup-time email:', err);
+        enqueueEmailRetry(order.contact.email, email.subject, email.text, email.html);
+      }
+
+      res.json({ fulfillment, ...statusUpdate });
     } catch (err) {
       console.error('Failed to confirm pickup:', err);
       res.status(500).json({ error: 'Failed to confirm pickup.' });
@@ -890,6 +1019,17 @@ app.post(
         updates.readyAt = now;
       }
       await setOrderStatus(req.params.id, updates);
+
+      const email = buildStatusChangeEmail({ contact: order.contact, method: order.fulfillment.method, status, order });
+      if (email) {
+        try {
+          await sendEmail(order.contact.email, email.subject, email.text, email.html);
+        } catch (err) {
+          console.error('Failed to send order-status email:', err);
+          enqueueEmailRetry(order.contact.email, email.subject, email.text, email.html);
+        }
+      }
+
       res.json(updates);
     } catch (err) {
       console.error('Failed to update order status:', err);
@@ -919,6 +1059,17 @@ app.post(
       }
       const completedAt = new Date().toISOString();
       await setOrderStatus(req.params.id, { status: 'completed', completedAt });
+
+      const email = buildStatusChangeEmail({ contact: order.contact, method: order.fulfillment.method, status: 'completed', order });
+      if (email) {
+        try {
+          await sendEmail(order.contact.email, email.subject, email.text, email.html);
+        } catch (err) {
+          console.error('Failed to send order-status email:', err);
+          enqueueEmailRetry(order.contact.email, email.subject, email.text, email.html);
+        }
+      }
+
       res.json({ status: 'completed', completedAt });
     } catch (err) {
       console.error('Failed to complete order:', err);
@@ -949,6 +1100,17 @@ app.post(
       }
       const canceledAt = new Date().toISOString();
       await setOrderStatus(req.params.id, { status: 'canceled', canceledAt });
+
+      const email = buildStatusChangeEmail({ contact: order.contact, method: order.fulfillment.method, status: 'canceled', order });
+      if (email) {
+        try {
+          await sendEmail(order.contact.email, email.subject, email.text, email.html);
+        } catch (err) {
+          console.error('Failed to send order-status email:', err);
+          enqueueEmailRetry(order.contact.email, email.subject, email.text, email.html);
+        }
+      }
+
       res.json({ status: 'canceled', canceledAt });
     } catch (err) {
       console.error('Failed to cancel order:', err);
@@ -1097,6 +1259,33 @@ app.delete('/api/customers/me', requireAuth, async (req, res) => {
     console.error('Failed to delete customer:', err);
     res.status(500).json({ error: 'Failed to delete account.' });
   }
+});
+
+// Registered last — Express only routes to a 4-arg middleware for errors,
+// which is exactly what asyncHandler (installAsyncErrorHandling above)
+// forwards a rejected route handler's error into via next(err). Every
+// endpoint now fails the same way (a clean JSON 500) instead of the request
+// hanging or the process going down.
+app.use((err, req, res, next) => {
+  console.error(`Unhandled error in ${req.method} ${req.originalUrl}:`, err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+});
+
+// Last-resort safety net for anything that still somehow bypasses the
+// per-route wrapping above (e.g. a bug outside any request, not inside one
+// of this app's own setTimeout-based retry queues, which already catch
+// their own errors). Node's default behavior on either of these is to
+// crash anyway — this just logs clearly first, then exits deliberately so
+// the process supervisor (node --watch locally; a real one in production)
+// restarts a clean process rather than one left in a possibly-corrupted state.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection reached the process boundary:', reason);
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  process.exit(1);
 });
 
 app.listen(PORT, () => {

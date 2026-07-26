@@ -128,10 +128,13 @@ function StatusBadge({ status, label }) {
   );
 }
 
-// The pickup row is purely about the requested time — confirming/adjusting
-// it is decoupled from the order's overall stage (that lives in
-// OrderStatusCell below), so Edit is always available here regardless of
-// stage, right up until the order is completed (readOnly).
+// The pickup row's own state is just the requested time (the order's overall
+// stage lives in OrderStatusCell below), so Edit is always available here
+// regardless of stage, right up until the order is completed (readOnly).
+// Saving an edit here also bumps the order out of 'placed' server-side (see
+// confirm-pickup in backend/index.js) — confirming/adjusting the pickup time
+// doubles as confirming the order, so this stays a one-click action instead
+// of also requiring OrderStatusCell's "Change Order Status" control.
 function PickupTimeCell({
   order,
   readOnly,
@@ -784,9 +787,11 @@ function OrderTracking() {
         setErrorsByOrderId((prev) => ({ ...prev, [orderId]: data.error || 'Failed to update pickup time.' }));
         return;
       }
-      setActiveOrders((prev) =>
-        prev.map((o) => (o.orderId === orderId ? { ...o, fulfillment: data.fulfillment } : o))
-      );
+      // data is { fulfillment, ...status fields } — the status fields are
+      // only present when this confirm/edit also bumped the order out of
+      // 'placed' (see the comment on confirm-pickup in backend/index.js),
+      // so spreading the whole response merges in whichever it sent.
+      setActiveOrders((prev) => prev.map((o) => (o.orderId === orderId ? { ...o, ...data } : o)));
       setEditingOrderId(null);
     } catch {
       setErrorsByOrderId((prev) => ({ ...prev, [orderId]: 'Failed to update pickup time.' }));

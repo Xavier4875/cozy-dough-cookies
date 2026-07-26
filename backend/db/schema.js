@@ -1,6 +1,8 @@
 export const CUSTOMERS_TABLE = process.env.CUSTOMERS_TABLE_NAME || 'CozyDoughCustomers';
 export const ORDERS_TABLE = process.env.ORDERS_TABLE_NAME || 'CozyDoughOrders';
 export const EXTERNAL_SALES_TABLE = process.env.EXTERNAL_SALES_TABLE_NAME || 'CozyDoughExternalSales';
+export const EMAIL_VERIFICATIONS_TABLE =
+  process.env.EMAIL_VERIFICATIONS_TABLE_NAME || 'CozyDoughEmailVerifications';
 
 // Customers: one row per real account (customer or staff/admin — role comes
 // from a Cognito group, not from a DynamoDB attribute). Guests never get a
@@ -73,4 +75,18 @@ export const externalSalesTableDefinition = {
   BillingMode: 'PAY_PER_REQUEST',
   AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
   KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }],
+};
+
+// One row per email currently mid-verification for guest checkout (signed-in
+// customers verify their email once at signup via Cognito and never need
+// this). Overwritten on every new code send, so there's never more than one
+// live code per email. `expiresAt` (epoch seconds) doubles as the DynamoDB
+// TTL attribute for storage cleanup, but expiry is also checked manually in
+// verificationRepo.js — TTL deletion isn't instant, so it can't be trusted
+// as the actual access-control boundary.
+export const emailVerificationsTableDefinition = {
+  TableName: EMAIL_VERIFICATIONS_TABLE,
+  BillingMode: 'PAY_PER_REQUEST',
+  AttributeDefinitions: [{ AttributeName: 'email', AttributeType: 'S' }],
+  KeySchema: [{ AttributeName: 'email', KeyType: 'HASH' }],
 };

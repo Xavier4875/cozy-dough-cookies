@@ -17,6 +17,7 @@ import OrderTracking from './pages/OrderTracking.jsx';
 import Sales from './pages/Sales.jsx';
 import SignIn from './pages/SignIn.jsx';
 import SignUp from './pages/SignUp.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import './App.css';
 
@@ -38,6 +39,7 @@ function App() {
           <Route path="/sales" element={<Sales />} />
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/sign-up" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
         </Routes>
       </main>
       {isMobile ? <MobileCartDrawer /> : <CartDrawer />}

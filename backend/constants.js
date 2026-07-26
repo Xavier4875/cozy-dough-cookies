@@ -13,6 +13,7 @@ export const PICKUP_TIME_RE = /^([01]\d|2[0-3]):(00|15|30|45)$/;
 export const PICKUP_OPEN_MINUTES = 10 * 60; // 10:00am
 export const PICKUP_CLOSE_MINUTES = 19 * 60; // 7:00pm
 export const PICKUP_MIN_NOTICE_MS = 24 * 60 * 60 * 1000;
+export const PICKUP_ADDRESS = '15003 S 21st St, Bellevue, NE 68123';
 
 // Shipping address format
 export const STATE_RE = /^[A-Za-z]{2}$/;
@@ -36,3 +37,10 @@ export const IP_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;
 
 // Rewards
 export const POINTS_PER_DOLLAR = 25;
+
+// Guest checkout email verification
+export const EMAIL_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000; // time allowed to enter the code
+export const EMAIL_VERIFICATION_VERIFIED_TTL_MS = 30 * 60 * 1000; // window to complete checkout after verifying
+export const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
+export const EMAIL_VERIFICATION_RATE_LIMIT_MAX_CALLS_DEFAULT = 5;
+export const EMAIL_VERIFICATION_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;

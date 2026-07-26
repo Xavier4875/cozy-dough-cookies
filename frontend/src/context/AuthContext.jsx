@@ -160,6 +160,53 @@ export function AuthProvider({ children }) {
     });
   }
 
+  // Kicks off Cognito's built-in recovery flow — emails a confirmation code
+  // to the account's email address. Deliberately resolves true/false the
+  // same shape as the other actions here rather than surfacing Cognito's
+  // "does this user exist" distinction: telling an anonymous caller whether
+  // a given email has an account would leak account existence.
+  function forgotPassword(email) {
+    setError('');
+    setErrorCode('');
+    if (!userPool) {
+      setError(NOT_CONFIGURED_ERROR);
+      return Promise.resolve(false);
+    }
+    const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+    return new Promise((resolve) => {
+      cognitoUser.forgotPassword({
+        onSuccess: () => resolve(true),
+        onFailure: (err) => {
+          setError(err.message);
+          setErrorCode(err.code || '');
+          resolve(false);
+        },
+      });
+    });
+  }
+
+  // The second half of the flow above — the code forgotPassword() emailed,
+  // plus the new password, in one Cognito call (ConfirmForgotPassword).
+  function confirmForgotPassword(email, code, newPassword) {
+    setError('');
+    setErrorCode('');
+    if (!userPool) {
+      setError(NOT_CONFIGURED_ERROR);
+      return Promise.resolve(false);
+    }
+    const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+    return new Promise((resolve) => {
+      cognitoUser.confirmPassword(code, newPassword, {
+        onSuccess: () => resolve(true),
+        onFailure: (err) => {
+          setError(err.message);
+          setErrorCode(err.code || '');
+          resolve(false);
+        },
+      });
+    });
+  }
+
   function signOut() {
     if (!window.confirm('Are you sure you want to sign out?')) return;
     userPool?.getCurrentUser()?.signOut();
@@ -242,6 +289,8 @@ export function AuthProvider({ children }) {
     confirmSignUp,
     resendConfirmationCode,
     signIn,
+    forgotPassword,
+    confirmForgotPassword,
     signOut,
     getIdToken,
     isAccountOpen,

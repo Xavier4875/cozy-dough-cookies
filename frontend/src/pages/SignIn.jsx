@@ -89,6 +89,9 @@ function SignIn() {
             autoComplete="current-password"
           />
         </label>
+        <Link to="/forgot-password" className="auth-form-link">
+          Forgot password?
+        </Link>
 
         {formNote && <p className="auth-form-note">{formNote}</p>}
         {(formError || error) && <p className="checkout-error">{formError || error}</p>}
