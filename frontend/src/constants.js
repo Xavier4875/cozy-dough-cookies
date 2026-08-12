@@ -10,9 +10,12 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Pickup scheduling
 export const PICKUP_OPEN_MINUTES = 10 * 60; // 10:00am
 export const PICKUP_CLOSE_MINUTES = 19 * 60; // 7:00pm
-export const PICKUP_MIN_NOTICE_MS = 24 * 60 * 60 * 1000;
 export const PICKUP_MAX_MONTHS_AHEAD = 3;
 export const PICKUP_WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Gluten-free/sugar-free batches need real lead time to bake — unlike
+// regular pickup orders, which have no advance-notice floor at all.
+export const PICKUP_EXTENDED_NOTICE_MS = 48 * 60 * 60 * 1000;
 
 // Shipping address format
 export const ZIP_RE = /^\d{5}(-\d{4})?$/;
@@ -82,7 +85,7 @@ export const US_STATES = [
 export const SHIPPING_MEDIUM_MAX_COOKIES = 36;
 export const SHIPPING_FEE_MEDIUM = 24;
 export const SHIPPING_FEE_LARGE = 30;
-export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12 };
+export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12, batch: 24 };
 
 // Smallest subtotal (pre-shipping) a single order may check out with —
 // equivalent to a half dozen at standard pricing.
@@ -102,6 +105,50 @@ export const COOKIE_SIZES = [
   { key: 'half_dozen', flag: 'is_half_dozen', label: 'Half Dozens' },
   { key: 'full_dozen', flag: 'is_full_dozen', label: 'Full Dozens' },
 ];
+
+// Top-level menu category tabs (shared between Menu.jsx and MobileMenu.jsx).
+// 'regular' uses the existing COOKIE_SIZES-driven layout above; the dietary
+// categories are a different shape entirely — no single/half/full dozen,
+// only a fixed 2-dozen batch — so they're driven by DIETARY_CATEGORIES
+// instead, keyed the same way as MENU_CATEGORIES' non-'regular' keys.
+export const MENU_CATEGORIES = [
+  { key: 'regular', label: 'Regular' },
+  { key: 'gluten_free', label: 'Gluten-Free' },
+  { key: 'sugar_free', label: 'Sugar-Free' },
+];
+
+// Backend's Cookie.TYPES has a matching `${category}_standard`/
+// `${category}_special` entry for each of these (no premium tier for
+// either) — this is just the display-side mirror of that, same reasoning as
+// COOKIE_SIZES above (no shared package between frontend/backend).
+export const DIETARY_CATEGORIES = {
+  gluten_free: {
+    typeOrder: ['gluten_free_standard', 'gluten_free_special'],
+    typeLabels: { gluten_free_standard: 'Standard', gluten_free_special: 'Special' },
+  },
+  sugar_free: {
+    typeOrder: ['sugar_free_standard', 'sugar_free_special'],
+    typeLabels: { sugar_free_standard: 'Standard', sugar_free_special: 'Special' },
+  },
+};
+
+// Short marker shown next to a gluten-free/sugar-free item's flavor
+// wherever it's displayed (menu, cart drawer, checkout) — derived from
+// `type` rather than a separate stored flag, same source of truth as
+// DIETARY_CATEGORIES above.
+export function dietaryMarker(type) {
+  if (type?.startsWith('gluten_free')) return 'GF';
+  if (type?.startsWith('sugar_free')) return 'SF';
+  return null;
+}
+
+// Cart/checkout line items show "(sizeLabel)" next to the flavor — this
+// folds the dietary marker into that same parenthetical (e.g.
+// "(GF, Batch)") instead of a second, separate one.
+export function sizeLabelWithMarker(item) {
+  const marker = dietaryMarker(item.type);
+  return marker ? `${marker}, ${item.sizeLabel}` : item.sizeLabel;
+}
 
 // Cognito accounts sit in an unconfirmed limbo between signUp() and a
 // successful confirmRegistration() — signing up again with that email fails

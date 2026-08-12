@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
 import OrderHistoryList from '../components/OrderHistoryList.jsx';
-import { PICKUP_OPEN_MINUTES, PICKUP_CLOSE_MINUTES } from '../constants.js';
+import {
+  PICKUP_OPEN_MINUTES,
+  PICKUP_CLOSE_MINUTES,
+  PICKUP_EXTENDED_NOTICE_MS,
+  dietaryMarker,
+  sizeLabelWithMarker,
+} from '../constants.js';
 import './OrderTracking.css';
 
 // Time-slot options for the staff pickup-time edit form — same grid-of-
@@ -17,12 +23,16 @@ for (let minutes = PICKUP_OPEN_MINUTES; minutes <= PICKUP_CLOSE_MINUTES; minutes
 
 // pickupDate/time are plain wall-clock strings (see formatPickupDateTime
 // below) — built as a local Date the same way, so this compares apples to
-// apples against the real current moment.
-function isSlotBeforeNow(pickupDate, time) {
+// apples against the real current moment. minNoticeMs is 0 for a regular
+// order (just "has this already passed") or PICKUP_EXTENDED_NOTICE_MS for
+// an order containing a gluten-free/sugar-free item, matching the same
+// floor PickupScheduleModal and the server (validateExtendedPickupNotice in
+// backend/index.js) hold a customer's own request to.
+function isSlotTooSoon(pickupDate, time, minNoticeMs = 0) {
   if (!pickupDate) return false;
   const [year, month, day] = pickupDate.split('-').map(Number);
   const [hour, minute] = time.split(':').map(Number);
-  return new Date(year, month - 1, day, hour, minute).getTime() < Date.now();
+  return new Date(year, month - 1, day, hour, minute).getTime() - Date.now() < minNoticeMs;
 }
 
 function formatOrderDate(isoString) {
@@ -64,10 +74,9 @@ function formatTime12h(hhmm) {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-// A pickup date equal to the order's own placement date can only happen via
-// the "Request same day pickup" link (PickupScheduleModal's normal calendar
-// never allows selecting today), so this comparison alone tells same-day
-// requests apart from ordinary ones — no separate flag stored on the order,
+// A pickup date equal to the order's own placement date means the customer
+// picked today's date at checkout — this comparison alone tells same-day
+// requests apart from ordinary ones, no separate flag stored on the order,
 // and it stays correct even after staff edit the pickup time here.
 function isSameDayPickup(order) {
   const placed = new Date(order.createdAt);
@@ -147,9 +156,21 @@ function PickupTimeCell({
   onCancelEdit,
   onSaveEdit,
 }) {
+  // Same floor a customer's own request would be held to (see
+  // PickupScheduleModal) — a staff edit shouldn't be able to move a
+  // gluten-free/sugar-free order's pickup inside the 48-hour window just
+  // because it's coming from the staff side.
+  const requiresExtendedNotice = order.items.some((item) => dietaryMarker(item.type));
+  const minNoticeMs = requiresExtendedNotice ? PICKUP_EXTENDED_NOTICE_MS : 0;
+
   if (!readOnly && isEditing) {
     return (
       <div className="order-tracking-edit-form">
+        {requiresExtendedNotice && (
+          <p className="order-tracking-notice-note">
+            Gluten-free/sugar-free orders need at least 48 hours notice for pickup.
+          </p>
+        )}
         <label>
           Date
           <input
@@ -164,10 +185,10 @@ function PickupTimeCell({
             {PICKUP_TIME_SLOTS.map((time) => {
               const isSelected = time === editForm.pickupTime;
               // The order's already-selected time stays clickable/visible
-              // even if it's since slipped into the past — only other past
-              // slots gray out, since disabling the current value would make
-              // an existing past-dated edit look stuck.
-              const isPast = !isSelected && isSlotBeforeNow(editForm.pickupDate, time);
+              // even if it's since slipped past the floor — only other
+              // disallowed slots gray out, since disabling the current value
+              // would make an existing edit look stuck.
+              const isPast = !isSelected && isSlotTooSoon(editForm.pickupDate, time, minNoticeMs);
               return (
                 <button
                   type="button"
@@ -463,7 +484,7 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
                 {order.items.map((item) => (
                   <li key={item.id}>
                     <span>
-                      {item.flavor} ({item.sizeLabel}) × {item.qty}
+                      {item.flavor} ({sizeLabelWithMarker(item)}) × {item.qty}
                     </span>
                     <span>${(item.price * item.qty).toFixed(2)}</span>
                   </li>
@@ -479,6 +500,12 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
             <tr>
               <th>Shipping &amp; handling</th>
               <td>${order.shippingFee.toFixed(2)}</td>
+            </tr>
+          )}
+          {order.surchargeFee !== undefined && (
+            <tr>
+              <th>Card surcharge</th>
+              <td>${order.surchargeFee.toFixed(2)}</td>
             </tr>
           )}
           <tr>
@@ -758,15 +785,19 @@ function OrderTracking() {
   // Re-checks the picked time against a freshly-read now before ever
   // touching the network — the grid's "grayed out" state only updates on a
   // re-render, so a slot that was valid when the edit form opened can have
-  // since slipped into the past if staff sat on the form a while. The
-  // server independently re-validates this exact rule regardless
-  // (validatePickupDateTime in backend/index.js), so this is purely about
-  // failing fast in the UI instead of a doomed round trip.
-  async function submitPickupConfirmation(orderId, pickupDate, pickupTime, note) {
-    if (isSlotBeforeNow(pickupDate, pickupTime)) {
+  // since slipped past the floor (or into the past) if staff sat on the
+  // form a while. The server independently re-validates this exact rule
+  // regardless (validatePickupDateTime/validateExtendedPickupNotice in
+  // backend/index.js), so this is purely about failing fast in the UI
+  // instead of a doomed round trip.
+  async function submitPickupConfirmation(orderId, pickupDate, pickupTime, note, requiresExtendedNotice) {
+    const minNoticeMs = requiresExtendedNotice ? PICKUP_EXTENDED_NOTICE_MS : 0;
+    if (isSlotTooSoon(pickupDate, pickupTime, minNoticeMs)) {
       setErrorsByOrderId((prev) => ({
         ...prev,
-        [orderId]: 'That time has since passed — please pick a new one.',
+        [orderId]: requiresExtendedNotice
+          ? 'That time no longer clears the 48-hour notice window — please pick a later one.'
+          : 'That time has since passed — please pick a new one.',
       }));
       return;
     }
@@ -964,7 +995,8 @@ function OrderTracking() {
                       order.orderId,
                       editForm.pickupDate,
                       editForm.pickupTime,
-                      editForm.note
+                      editForm.note,
+                      order.items.some((item) => dietaryMarker(item.type))
                     ),
                 }}
                 statusCellProps={{

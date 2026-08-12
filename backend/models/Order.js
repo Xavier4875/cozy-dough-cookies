@@ -1,4 +1,5 @@
 import { SHIPPING_MEDIUM_MAX_COOKIES, SHIPPING_FEE_MEDIUM, SHIPPING_FEE_LARGE } from '../constants.js';
+import { isDietaryRestrictedType } from './Cookie.js';
 
 // Prefixed with a per-boot id so a dev-server restart (node --watch resets
 // this counter back to 1) can't produce an order id that collides with one
@@ -42,6 +43,13 @@ export class Order {
     return this.items.some((item) => item.cookie.is_temperature_controlled);
   }
 
+  // Gluten-free/sugar-free batches need real lead time to bake — see
+  // PICKUP_EXTENDED_NOTICE_MS and validateExtendedPickupNotice in
+  // backend/index.js, which is what actually enforces this at checkout.
+  get requiresExtendedPickupNotice() {
+    return this.items.some((item) => isDietaryRestrictedType(item.cookie.type));
+  }
+
   // Actual physical cookie count, weighted by box size — distinct from a
   // line-item qty sum, since e.g. one Full Dozen item is 12 cookies, not 1.
   // Reward items carry an explicit physicalCookieUnits instead of an
@@ -72,6 +80,12 @@ export class Order {
         sizeLabel: item.cookie.sizeLabel,
         price: item.cookie.price,
         is_temperature_controlled: item.cookie.is_temperature_controlled,
+        // Persisted so sales aggregation (which reads stored orders, not
+        // live Cookie instances) can still get the right cookie count for
+        // an item whose physicalCookieUnits doesn't match its sizeLabel's
+        // usual unit count — e.g. a gluten-free Brownie batch (19, not the
+        // usual 24). undefined for non-batch items, same as on Cookie.
+        physicalCookieUnits: item.cookie.physicalCookieUnits,
         qty: item.qty,
       })),
       total: this.total,

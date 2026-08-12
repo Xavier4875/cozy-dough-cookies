@@ -1,11 +1,14 @@
 import { useState } from 'react';
+import { Elements } from '@stripe/react-stripe-js';
 import { useAuth } from '../context/useAuth.js';
 import PickupScheduleModal from './PickupScheduleModal.jsx';
 import ShippingAddressModal from './ShippingAddressModal.jsx';
+import StripePaymentForm from './StripePaymentForm.jsx';
+import { stripePromise } from '../stripe/client.js';
 import { EMAIL_RE } from '../constants.js';
 import './CheckoutForm.css';
 
-function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly, orders = [] }) {
+function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, error, pickupOnly, orders = [] }) {
   const { isAuthenticated, user } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -14,6 +17,18 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly, order
   const [formError, setFormError] = useState('');
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+
+  // Set once fulfillment is confirmed (see handlePickupConfirm/
+  // handleAddressConfirm) — from then on this form shows Stripe's payment
+  // step instead of the contact/fulfillment fields, until the customer pays
+  // (see startPayment/handlePaymentSuccess) or backs out of it.
+  const [paymentStep, setPaymentStep] = useState('idle'); // 'idle' | 'creating' | 'ready'
+  const [pendingDetails, setPendingDetails] = useState(null);
+  const [clientSecret, setClientSecret] = useState(null);
+  const [paymentIntentId, setPaymentIntentId] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [surchargeEnabled, setSurchargeEnabled] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
 
   // Guest-only email verification. `verifiedEmail` is the exact (lowercased)
   // address a code was successfully confirmed for — editing the email field
@@ -137,25 +152,81 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly, order
     proceedToFulfillment();
   }
 
-  function handlePickupConfirm(pickupDate, pickupTime, sameDay) {
+  // Fulfillment is confirmed at this point, but onSubmit (the actual
+  // checkout call) doesn't fire yet — payment has to happen first. Creates
+  // a Stripe PaymentIntent for the server-computed total, then shows the
+  // Payment Element (see the 'ready' branch in the render below) instead of
+  // calling onSubmit directly.
+  async function startPayment(details) {
+    setPendingDetails(details);
+    setPaymentStep('creating');
+    setPaymentError('');
+    try {
+      const result = await onCreatePaymentIntent(details);
+      setClientSecret(result.clientSecret);
+      setPaymentIntentId(result.paymentIntentId);
+      setPaymentAmount(result.amount);
+      setSurchargeEnabled(Boolean(result.surchargeEnabled));
+      setPaymentStep('ready');
+    } catch (err) {
+      setPaymentError(err.message || 'Failed to start payment.');
+      setPaymentStep('idle');
+    }
+  }
+
+  // Called once Stripe confirms the charge actually succeeded — only now
+  // does the real checkout request go out, carrying the paymentIntentId the
+  // backend re-verifies (status + amount) before ever persisting an order.
+  function handlePaymentSuccess(paymentIntentId) {
+    onSubmit({ ...pendingDetails, paymentIntentId });
+  }
+
+  function handlePaymentBack() {
+    setPaymentStep('idle');
+    setClientSecret(null);
+  }
+
+  function handlePickupConfirm(pickupDate, pickupTime) {
     setIsScheduleOpen(false);
-    onSubmit({
+    startPayment({
       contact: resolveContact(),
-      // sameDay only matters to the backend's validation (it relaxes the
-      // 24-hour notice floor for a pickup date that's genuinely today) —
-      // it's never persisted on the order; "was this same-day" is instead
-      // derived wherever pickup time is displayed by comparing pickupDate
-      // to the order's own placement date.
-      fulfillment: { method: 'pickup', pickupDate, pickupTime, ...(sameDay && { sameDay: true }) },
+      fulfillment: { method: 'pickup', pickupDate, pickupTime },
     });
   }
 
   function handleAddressConfirm(shippingAddress) {
     setIsAddressModalOpen(false);
-    onSubmit({
+    startPayment({
       contact: resolveContact(),
       fulfillment: { method: 'shipping', shippingAddress },
     });
+  }
+
+  if (paymentStep === 'creating') {
+    return <p className="checkout-form-note">Preparing payment...</p>;
+  }
+
+  if (paymentStep === 'ready') {
+    return (
+      <Elements
+        stripe={stripePromise}
+        // paymentMethodCreation: 'manual' is required for the surcharge flow's
+        // stripe.createPaymentMethod({elements}) call (StripePaymentForm.jsx) —
+        // Stripe otherwise throws "your elements instance must be created with
+        // paymentMethodCreation: 'manual'". Left out entirely when surcharging
+        // is off so the plain stripe.confirmPayment() path is untouched.
+        options={surchargeEnabled ? { clientSecret, paymentMethodCreation: 'manual' } : { clientSecret }}
+      >
+        <StripePaymentForm
+          amount={paymentAmount}
+          paymentIntentId={paymentIntentId}
+          surchargeEnabled={surchargeEnabled}
+          onSuccess={handlePaymentSuccess}
+          onBack={handlePaymentBack}
+          submitting={submitting}
+        />
+      </Elements>
+    );
   }
 
   return (
@@ -276,7 +347,9 @@ function CheckoutForm({ onSubmit, onCancel, submitting, error, pickupOnly, order
               )}
             </div>
 
-            {(formError || error) && <p className="checkout-error">{formError || error}</p>}
+            {(formError || paymentError || error) && (
+              <p className="checkout-error">{formError || paymentError || error}</p>
+            )}
 
             <div className="checkout-form-actions">
               <button type="button" className="checkout-form-cancel" onClick={onCancel}>

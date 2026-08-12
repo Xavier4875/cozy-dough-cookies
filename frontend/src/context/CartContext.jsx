@@ -195,22 +195,39 @@ export function CartProvider({ children }) {
     }
   }
 
-  async function submitToBackend(payload) {
+  async function postJson(url, payload) {
     const headers = { 'Content-Type': 'application/json' };
     if (isAuthenticated) {
       const token = await getIdToken();
       if (token) headers.Authorization = `Bearer ${token}`;
     }
-    const res = await fetch('/api/checkout', {
+    const res = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Checkout failed.');
+      throw new Error(data.error || 'Request failed.');
     }
     return data;
+  }
+
+  async function submitToBackend(payload) {
+    return postJson('/api/checkout', payload);
+  }
+
+  // Same { orders, ...details } shape /api/checkout itself takes — the
+  // backend recomputes the trustworthy total from it and creates a Stripe
+  // PaymentIntent, before the customer ever sees a card field. `target`
+  // mirrors checkoutOrder/checkoutAll's own orderId-vs-whole-cart split, so
+  // this can build the same orders payload either one would.
+  async function createPaymentIntent(target, details) {
+    const payload =
+      target.type === 'order'
+        ? { orders: [cart.orders.find((o) => o.id === target.orderId).toCheckoutPayload()] }
+        : cart.toCheckoutPayload();
+    return postJson('/api/checkout/create-payment-intent', { ...payload, ...details });
   }
 
   // Checks out a single order, leaving every other in-progress order untouched.
@@ -281,6 +298,7 @@ export function CartProvider({ children }) {
     checkoutError,
     checkoutOrder,
     checkoutAll,
+    createPaymentIntent,
     orderHistory,
     orderHistoryLoading,
     rewardsCatalog,

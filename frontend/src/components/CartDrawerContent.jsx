@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useCart } from '../context/useCart.js';
 import Mascot from './Mascot.jsx';
 import CheckoutForm from './CheckoutForm.jsx';
-import { MIN_ORDER_SUBTOTAL } from '../constants.js';
+import { MIN_ORDER_SUBTOTAL, sizeLabelWithMarker } from '../constants.js';
 import './CartDrawerContent.css';
 
 // The actual cart data/checkout UI, with no knowledge of whether it's
@@ -21,6 +21,7 @@ function CartDrawerContent() {
     checkoutError,
     checkoutOrder,
     checkoutAll,
+    createPaymentIntent,
   } = useCart();
 
   // { type: 'order', orderId } | { type: 'all' } | null — while set, the
@@ -71,6 +72,7 @@ function CartDrawerContent() {
       {checkoutTarget ? (
         <CheckoutForm
           onSubmit={handleCheckoutSubmit}
+          onCreatePaymentIntent={(details) => createPaymentIntent(checkoutTarget, details)}
           onCancel={() => setCheckoutTarget(null)}
           submitting={checkingOut}
           error={checkoutError}
@@ -114,7 +116,7 @@ function CartDrawerContent() {
                       {order.items.map((item) => (
                         <li key={item.cookie.id}>
                           <span>
-                            {item.cookie.flavor} ({item.cookie.sizeLabel})
+                            {item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)})
                             {item.cookie.isReward ? (
                               <>
                                 {' '}× {item.qty}

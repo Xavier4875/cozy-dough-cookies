@@ -39,6 +39,16 @@
   color: #6b7280;
 }
 
+.checkout-surcharge-note {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #f4e9d8;
+  color: #3d2b1f;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .checkout-form-radios {
   display: flex;
   gap: 1.25rem;

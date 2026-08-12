@@ -1,5 +1,15 @@
+import { dietaryMarker } from '../models/Cookie.js';
+
 export function formatMoney(n) {
   return `$${n.toFixed(2)}`;
+}
+
+// Folds the dietary marker into the same "(sizeLabel)" parenthetical shown
+// next to an item's flavor, e.g. "(GF, Batch)" — same format the frontend
+// uses (see sizeLabelWithMarker in frontend/src/constants.js).
+function sizeLabelWithMarker(item) {
+  const marker = dietaryMarker(item.type);
+  return marker ? `${marker}, ${item.sizeLabel}` : item.sizeLabel;
 }
 
 // pickupDate is 'YYYY-MM-DD', pickupTime is 24h 'HH:MM' — parsed as local
@@ -62,7 +72,7 @@ export function buildOrderTableHtml(order) {
     .map(
       (item) => `
     <tr>
-      <td style="${cell}">${escapeHtml(item.flavor)} (${escapeHtml(item.sizeLabel)})</td>
+      <td style="${cell}">${escapeHtml(item.flavor)} (${escapeHtml(sizeLabelWithMarker(item))})</td>
       <td style="${cell}text-align:center;">${item.qty}</td>
       <td style="${cell}text-align:right;">${formatMoney(item.price * item.qty)}</td>
     </tr>`
@@ -71,6 +81,7 @@ export function buildOrderTableHtml(order) {
 
   const footerLines = [['Subtotal', order.subtotal]];
   if (order.shippingFee) footerLines.push(['Shipping', order.shippingFee]);
+  if (order.surchargeFee) footerLines.push(['Card surcharge', order.surchargeFee]);
   footerLines.push(['Total', order.total]);
 
   const footerRows = footerLines
@@ -103,10 +114,11 @@ export function buildOrderTableHtml(order) {
 // Text body alongside the Html one, for text-only clients.
 export function buildOrderTableText(order) {
   const lines = order.items.map(
-    (item) => `  ${item.qty} x ${item.flavor} (${item.sizeLabel}) - ${formatMoney(item.price * item.qty)}`
+    (item) => `  ${item.qty} x ${item.flavor} (${sizeLabelWithMarker(item)}) - ${formatMoney(item.price * item.qty)}`
   );
   lines.push(`  Subtotal: ${formatMoney(order.subtotal)}`);
   if (order.shippingFee) lines.push(`  Shipping: ${formatMoney(order.shippingFee)}`);
+  if (order.surchargeFee) lines.push(`  Card surcharge: ${formatMoney(order.surchargeFee)}`);
   lines.push(`  Total: ${formatMoney(order.total)}`);
   return lines;
 }

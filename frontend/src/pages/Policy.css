@@ -1,3 +1,46 @@
 .policy-page > * {
   margin-bottom: 1.25rem;
 }
+
+.policy-contact {
+  text-align: left;
+  width: fit-content;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 8px;
+  background: #f4e9d8;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.policy-contact-heading {
+  margin: 0 0 0.25rem;
+  font-weight: bold;
+  color: #3d2b1f;
+}
+
+.policy-contact-line {
+  margin: 0;
+}
+
+.policy-contact-line a {
+  color: #3d2b1f;
+}
+
+.policy-section h2 {
+  margin-bottom: 0.5rem;
+}
+
+.policy-section ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.policy-section li {
+  margin-bottom: 0.4rem;
+  line-height: 1.5;
+}
+
+.policy-section li:last-child {
+  margin-bottom: 0;
+}

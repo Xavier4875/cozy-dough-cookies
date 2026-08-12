@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { sizeLabelWithMarker } from '../constants.js';
 import './OrderHistoryList.css';
 
 function formatOrderDate(isoString) {
@@ -40,10 +41,9 @@ function formatTime12h(hhmm) {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-// A pickup date equal to the order's own placement date can only happen via
-// the "Request same day pickup" link (PickupScheduleModal's normal calendar
-// never allows selecting today), so this comparison alone tells same-day
-// requests apart from ordinary ones — no separate flag stored on the order,
+// A pickup date equal to the order's own placement date means the customer
+// picked today's date at checkout — this comparison alone tells same-day
+// requests apart from ordinary ones, no separate flag stored on the order,
 // and it stays correct even if staff later edit the pickup time.
 function isSameDayPickup(order) {
   const placed = new Date(order.createdAt);
@@ -144,11 +144,16 @@ function OrderCard({ order }) {
           Shipping &amp; handling: ${order.shippingFee.toFixed(2)}
         </p>
       )}
+      {order.surchargeFee !== undefined && (
+        <p className="receipt-order-pickup">
+          Card surcharge: ${order.surchargeFee.toFixed(2)}
+        </p>
+      )}
       <ul className="cart-list">
         {order.items.map((item) => (
           <li key={item.id}>
             <span>
-              {item.flavor} ({item.sizeLabel}) × {item.qty}
+              {item.flavor} ({sizeLabelWithMarker(item)}) × {item.qty}
             </span>
             <span>${(item.price * item.qty).toFixed(2)}</span>
           </li>

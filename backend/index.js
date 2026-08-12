@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, scanAll } from './db/client.js';
 import { EXTERNAL_SALES_TABLE } from './db/schema.js';
-import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS } from './models/Cookie.js';
+import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS, isDietaryRestrictedType } from './models/Cookie.js';
 import { Order } from './models/Order.js';
 import { Cart } from './models/Cart.js';
 import {
@@ -55,18 +55,21 @@ import { buildReceiptEmail } from './email/receipt.js';
 import { buildPickupTimeEmail, buildStatusChangeEmail } from './email/orderStatusEmail.js';
 import { buildStaffNewOrderEmail } from './email/staffNotification.js';
 import { enqueue as enqueueEmailRetry } from './email/emailRetryQueue.js';
+import { getStripeClient } from './stripe/client.js';
 import {
   EMAIL_RE,
   PICKUP_DATE_RE,
   PICKUP_TIME_RE,
   PICKUP_OPEN_MINUTES,
   PICKUP_CLOSE_MINUTES,
-  PICKUP_MIN_NOTICE_MS,
+  PICKUP_EXTENDED_NOTICE_MS,
   STATE_RE,
   ZIP_RE,
   UNITS_PER_SIZE,
   MIN_ORDER_SUBTOTAL,
   EMAIL_VERIFICATION_MAX_ATTEMPTS,
+  CARD_SURCHARGE_RATE,
+  CARD_SURCHARGE_API_VERSION,
 } from './constants.js';
 
 // Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
@@ -109,41 +112,60 @@ function validateShippingAddressFields(shippingAddress) {
 // values, interpreted in whatever local time zone this process runs in, same
 // as the browser interprets them when building the picker. Good enough for a
 // single-timezone business; would need real tz-awareness for multi-location.
+function parsePickupDateTime(pickupDate, pickupTime) {
+  const [year, month, day] = pickupDate.split('-').map(Number);
+  const [hour, minute] = pickupTime.split(':').map(Number);
+  return new Date(year, month - 1, day, hour, minute);
+}
+
 // Shared by validateFulfillment (customer self-scheduling) and staff's
 // confirm-pickup endpoint — a staff edit must clear the same bar a customer's
 // own request would, not a looser one.
-// sameDay bypasses the normal 24-hour notice floor for the "Request same
-// day pickup" flow — but only for a pickup date that really is today
-// server-side; a client claiming sameDay for some other date is still held
-// to the regular floor (never trust the flag alone to skip the real check).
-function validatePickupDateTime(pickupDate, pickupTime, sameDay = false) {
+// No advance-notice requirement for a regular pickup order — every pickup
+// order is confirmed by staff after the fact regardless (see
+// /api/orders/:id/confirm-pickup), so the only real constraints here are
+// business hours and not picking a time that's already passed. Gluten-free/
+// sugar-free orders get an *additional* 48-hour floor on top of this — see
+// validateExtendedPickupNotice below, which only runs once the caller knows
+// whether the order actually contains one (this function alone doesn't).
+function validatePickupDateTime(pickupDate, pickupTime) {
   if (!pickupDate || !PICKUP_DATE_RE.test(pickupDate)) {
     return 'A valid pickup date is required.';
   }
   if (!pickupTime || !PICKUP_TIME_RE.test(pickupTime)) {
     return 'Pickup time must be in 15-minute increments.';
   }
-  const [year, month, day] = pickupDate.split('-').map(Number);
   const [hour, minute] = pickupTime.split(':').map(Number);
   const minutesOfDay = hour * 60 + minute;
   if (minutesOfDay < PICKUP_OPEN_MINUTES || minutesOfDay > PICKUP_CLOSE_MINUTES) {
     return 'Pickup time must be between 10:00am and 7:00pm.';
   }
-  const pickupDateTime = new Date(year, month - 1, day, hour, minute);
+  const [, month, day] = pickupDate.split('-').map(Number);
+  const pickupDateTime = parsePickupDateTime(pickupDate, pickupTime);
   // new Date rolls over out-of-range components (e.g. day 32) instead of
   // failing, so a mismatched getDate() catches an invalid calendar date
   // like 2026-02-30 that the regex alone can't reject.
   if (pickupDateTime.getDate() !== day || pickupDateTime.getMonth() !== month - 1) {
     return 'A valid pickup date is required.';
   }
-  const now = new Date();
-  const isActuallyToday =
-    year === now.getFullYear() && month - 1 === now.getMonth() && day === now.getDate();
-  const minNoticeMs = sameDay && isActuallyToday ? 0 : PICKUP_MIN_NOTICE_MS;
-  if (pickupDateTime.getTime() - now.getTime() < minNoticeMs) {
-    return minNoticeMs === 0
-      ? 'That pickup time has already passed today.'
-      : 'Pickup must be scheduled at least 24 hours in advance.';
+  if (pickupDateTime.getTime() < Date.now()) {
+    return 'That pickup time has already passed.';
+  }
+  return null;
+}
+
+// Only meaningful once the caller knows whether the order actually contains
+// a gluten-free/sugar-free item — checked separately from
+// validatePickupDateTime above because that's only known once the cart is
+// resolved (see resolveCheckoutRequest), not from the fulfillment payload
+// alone. requiresExtendedNotice is a plain boolean rather than a cart/order
+// object so this works the same whether the caller has a live Cart (at
+// checkout) or a persisted order record (staff's confirm-pickup endpoint).
+function validateExtendedPickupNotice(fulfillment, requiresExtendedNotice) {
+  if (fulfillment.method !== 'pickup' || !requiresExtendedNotice) return null;
+  const pickupDateTime = parsePickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime);
+  if (pickupDateTime.getTime() - Date.now() < PICKUP_EXTENDED_NOTICE_MS) {
+    return 'Gluten-free/sugar-free orders need at least 48 hours notice for pickup.';
   }
   return null;
 }
@@ -159,7 +181,7 @@ function validateFulfillment(fulfillment) {
     if (addressError) return addressError;
   }
   if (method === 'pickup') {
-    const pickupError = validatePickupDateTime(pickupDate, pickupTime, fulfillment.sameDay === true);
+    const pickupError = validatePickupDateTime(pickupDate, pickupTime);
     if (pickupError) return pickupError;
   }
   return null;
@@ -167,6 +189,9 @@ function validateFulfillment(fulfillment) {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+// Stays false until card-network advance notice is confirmed done AND
+// Surcharging is turned on in the Stripe Dashboard — neither is true yet.
+const CARD_SURCHARGE_ENABLED = process.env.ENABLE_CARD_SURCHARGE === 'true';
 
 // Must run before any app.get/post/put/patch/delete calls below — it
 // replaces those methods so every route registered afterward automatically
@@ -175,16 +200,27 @@ const PORT = process.env.PORT || 4000;
 installAsyncErrorHandling(app);
 
 app.use(cors());
-app.use(express.json());
+// The `verify` hook stashes the raw request bytes on req.rawBody alongside
+// the normal parsed req.body — Stripe's webhook signature check (see
+// /api/stripe/webhook) needs the exact original bytes, not a re-serialized
+// JSON.stringify(req.body), which isn't guaranteed to match byte-for-byte.
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // Stubbed out for now — real data comes once DynamoDB is wired up.
-// One product per flavor per size (single/half dozen/full dozen), built from
-// Cookie's own type->flavor table so the list isn't duplicated here.
-const SIZES = ['single', 'half_dozen', 'full_dozen'];
+// One product per flavor per applicable size, built from Cookie's own
+// type->flavor->sizes table so the list isn't duplicated here — each type
+// declares its own `sizes` (e.g. gluten-free/sugar-free only ever have
+// 'batch'), so this doesn't need to know which types support which sizes.
 const PRODUCTS = [];
 for (const [type, info] of Object.entries(Cookie.TYPES)) {
   for (const flavor of info.flavors) {
-    for (const size of SIZES) {
+    for (const size of info.sizes) {
       PRODUCTS.push(new Cookie(type, flavor, size));
     }
   }
@@ -288,34 +324,20 @@ app.post('/api/email-verification/confirm', async (req, res) => {
   res.json({ verified: true });
 });
 
-// Real persistence, no real payment yet — prices/totals are computed
-// server-side from PRODUCTS so the client can't just send whatever total it
-// wants, and every order gets written to DynamoDB. Guest checkout stays
-// fully supported: optionalAuth attaches req.user when a valid token is
-// present but never blocks the request, so a signed-in customer's orders
-// get a customerId stamped on and a guest's orders omit it entirely (the
-// customerId-createdAt-index GSI is sparse, so that's the intended shape).
-// contact/fulfillment apply to the whole checkout action and get stamped
-// onto each order created in it — required for everyone, signed in or not.
-// A cart can hold several orders at once (e.g. separate pickup batches), so
-// the request carries a list of orders, each with its own cookie/qty items.
-app.post('/api/checkout', optionalAuth, async (req, res) => {
-  // Spam protection for the shipping/USPS path specifically — checked first,
-  // before any other work, so an abusive IP is turned away as cheaply as
-  // possible. Unlike usps.js's global quota limiter (which stays
-  // non-blocking to protect capacity for everyone else), this one actually
-  // rejects the request: the point here is stopping a single bad actor, not
-  // preserving a shared resource.
-  if (req.body.fulfillment?.method === 'shipping' && !checkIpRateLimit(req.ip)) {
-    return res.status(429).json({
-      error: 'Too many shipping checkout attempts from this address. Please try again later.',
-    });
-  }
-
+// Shared by /api/checkout/create-payment-intent and /api/checkout — both
+// need the exact same server-computed cart (prices/totals come from
+// PRODUCTS server-side, never trusted from the client), so this lives once
+// rather than duplicated between "how much do I charge" and "what do I
+// actually persist". Deliberately excludes USPS address validation and
+// rewards-point spending: those are an externally-rate-limited call and an
+// irreversible balance change respectively, and must only happen once, at
+// the actual finalize step — not every time a price is computed. Mutates
+// req.user (downgrading a stale token to guest) as a side effect, same as
+// the original inline checkout logic did.
+async function resolveCheckoutRequest(req) {
   const requestedOrders = Array.isArray(req.body.orders) ? req.body.orders : [];
-
   if (requestedOrders.length === 0) {
-    return res.status(400).json({ error: 'Cart has no orders.' });
+    return { error: 'Cart has no orders.', status: 400 };
   }
 
   // A token can stay cryptographically valid for its full lifetime even
@@ -323,20 +345,15 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   // revoke tokens already issued to it) — so a stale second tab could
   // otherwise still have orders attributed to, and earn/redeem points on, a
   // customerId that no longer resolves to anyone. Downgrade silently to
-  // guest checkout rather than erroring, the same as an actually-unauthenticated
-  // request — checkout already fully supports that path.
+  // guest checkout rather than erroring.
   if (req.user && !(await getCustomerById(req.user.customerId))) {
     req.user = null;
   }
 
   const contactError = validateContact(req.body.contact);
-  if (contactError) {
-    return res.status(400).json({ error: contactError });
-  }
+  if (contactError) return { error: contactError, status: 400 };
   const fulfillmentError = validateFulfillment(req.body.fulfillment);
-  if (fulfillmentError) {
-    return res.status(400).json({ error: fulfillmentError });
-  }
+  if (fulfillmentError) return { error: fulfillmentError, status: 400 };
 
   const contact = {
     firstName: String(req.body.contact.firstName).trim(),
@@ -346,10 +363,12 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
 
   // Guests must prove they own the inbox they're checking out with —
   // signed-in customers already did this once at signup, via Cognito.
+  // Checked here (shared) rather than only at finalize, so a guest never
+  // gets as far as entering card details only to be rejected afterward.
   if (!req.user) {
     const verification = await getVerification(contact.email.toLowerCase());
     if (!isCurrentlyVerified(verification)) {
-      return res.status(400).json({ error: 'Please verify your email before checking out.' });
+      return { error: 'Please verify your email before checking out.', status: 400 };
     }
   }
 
@@ -383,7 +402,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     (o) => Array.isArray(o.redemptions) && o.redemptions.length > 0
   );
   if (hasRedemptions && !req.user) {
-    return res.status(400).json({ error: 'Sign in to redeem rewards.' });
+    return { error: 'Sign in to redeem rewards.', status: 400 };
   }
   const resolvedRedemptions = []; // [{ orderIndex, entry, flavors }]
   for (let i = 0; i < requestedOrders.length; i++) {
@@ -393,16 +412,17 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
       const flavors = redemption?.flavors;
       const entry = getReward(key);
       if (!entry) {
-        return res.status(400).json({ error: `Unknown reward: ${key}` });
+        return { error: `Unknown reward: ${key}`, status: 400 };
       }
       if (!Array.isArray(flavors) || flavors.length !== entry.qty) {
-        return res.status(400).json({
+        return {
           error: `${entry.label} requires exactly ${entry.qty} flavor selection${entry.qty > 1 ? 's' : ''}.`,
-        });
+          status: 400,
+        };
       }
       const validFlavors = Cookie.TYPES[entry.type].flavors;
       if (flavors.some((f) => !validFlavors.includes(f))) {
-        return res.status(400).json({ error: `Invalid flavor selection for ${entry.label}.` });
+        return { error: `Invalid flavor selection for ${entry.label}.`, status: 400 };
       }
       resolvedRedemptions.push({ orderIndex: i, entry, flavors });
     }
@@ -416,17 +436,17 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     const requestedItems = Array.isArray(requestedOrder.items) ? requestedOrder.items : [];
     const orderHasRedemption = resolvedRedemptions.some((r) => r.orderIndex === i);
     if (requestedItems.length === 0 && !orderHasRedemption) {
-      return res.status(400).json({ error: 'An order has no cookies in it.' });
+      return { error: 'An order has no cookies in it.', status: 400 };
     }
 
     const order = new Order();
     for (const { id, qty } of requestedItems) {
       const cookie = PRODUCTS.find((p) => p.id === id);
       if (!cookie) {
-        return res.status(400).json({ error: `Unknown product id: ${id}` });
+        return { error: `Unknown product id: ${id}`, status: 400 };
       }
       if (!Number.isInteger(qty) || qty <= 0) {
-        return res.status(400).json({ error: `Invalid quantity for ${cookie.flavor}.` });
+        return { error: `Invalid quantity for ${cookie.flavor}.`, status: 400 };
       }
       order.addCookie(cookie, qty);
     }
@@ -466,26 +486,342 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   // here, not the $0 it actually charges, so an order paid for entirely in
   // points can still clear the minimum instead of always reading as $0.
   if (cart.orders.some((order) => order.valueTotal < MIN_ORDER_SUBTOTAL)) {
-    return res.status(400).json({
+    return {
       error: `Each order must have a value of at least $${MIN_ORDER_SUBTOTAL.toFixed(2)}.`,
-    });
+      status: 400,
+    };
   }
 
   if (fulfillment.method === 'shipping' && cart.orders.some((order) => order.requiresPickup)) {
-    return res.status(400).json({
+    return {
       error: 'This order contains temperature-controlled items that can only be picked up, not shipped.',
+      status: 400,
+    };
+  }
+
+  const noticeError = validateExtendedPickupNotice(
+    fulfillment,
+    cart.orders.some((order) => order.requiresExtendedPickupNotice)
+  );
+  if (noticeError) return { error: noticeError, status: 400 };
+
+  return { contact, fulfillment, cart, resolvedRedemptions, totalPointsRequired };
+}
+
+// The actual dollar amount this checkout must charge — order.total (items
+// only) plus shipping fee where it applies. Not cart.grandTotal, which only
+// sums order.total across orders and omits shipping entirely; that field is
+// kept as-is in the response below for display, but it's never what's
+// actually charged.
+function computeGrandTotal(cart, fulfillment) {
+  return cart.orders.reduce((sum, order) => {
+    const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
+    return sum + order.total + shippingFee;
+  }, 0);
+}
+
+// A failure that reaches this point in /api/checkout means Stripe has
+// already actually charged the customer — unlike every rejection earlier in
+// the handler (which happen before payment is ever verified), just
+// returning an error here would leave them charged with no order to show
+// for it. Refunding first is what keeps that from happening; the refund
+// call itself is best-effort logged (not re-thrown) since the customer-
+// facing error is the same either way, and a failed refund here still
+// leaves the finalized-metadata guard in place against reusing the payment.
+async function refundAndFail(res, paymentIntentId, status, message) {
+  try {
+    await getStripeClient().refunds.create({ payment_intent: paymentIntentId });
+  } catch (err) {
+    console.error(`Failed to refund payment ${paymentIntentId} after a failed checkout:`, err);
+  }
+  res.status(status).json({ error: message });
+}
+
+// Computes the trustworthy total for the cart described in the request body
+// and creates a Stripe PaymentIntent for it. Called before the customer ever
+// sees a card field — the frontend renders Stripe's Payment Element against
+// the returned client secret, then only calls /api/checkout (below) once
+// Stripe confirms the payment actually succeeded.
+app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) => {
+  const resolved = await resolveCheckoutRequest(req);
+  if (resolved.error) {
+    return res.status(resolved.status).json({ error: resolved.error });
+  }
+  const { cart, fulfillment } = resolved;
+  const amount = Math.round(computeGrandTotal(cart, fulfillment) * 100);
+  if (amount <= 0) {
+    return res.status(400).json({ error: 'Nothing to charge.' });
+  }
+
+  try {
+    const paymentIntent = await getStripeClient().paymentIntents.create({
+      amount,
+      currency: 'usd',
+      // Explicit, not automatic_payment_methods — Apple Pay/Google Pay are
+      // surfaced by Stripe.js's Payment Element as wallet UI on top of the
+      // 'card' type (detected client-side by device/browser support), not
+      // separate PaymentIntent types that need enabling here. Being explicit
+      // keeps whatever else might be enabled in the Dashboard (Klarna, Cash
+      // App Pay, etc.) from silently showing up uninvited.
+      payment_method_types: ['card'],
+    });
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      amount,
+      surchargeEnabled: CARD_SURCHARGE_ENABLED,
+    });
+  } catch (err) {
+    console.error('Failed to create payment intent:', err);
+    res.status(500).json({ error: 'Failed to start payment. Please try again.' });
+  }
+});
+
+// Attaches a payment method to a not-yet-confirmed PaymentIntent and asks
+// Stripe's (public-preview) surcharging feature whether this specific card
+// can be surcharged at all — it checks funding type (credit vs. debit/
+// prepaid) and country for us, which is exactly the check federal law
+// requires before ever adding a surcharge. Stripe doesn't pick the rate;
+// `maximum_amount` is only a technical ceiling, not a suggested amount — see
+// computeSurchargeCents below for where the actual 3% comes from.
+// Never throws: a preview-API shape change, the account not yet having
+// Surcharging enabled in the Dashboard, or any other failure here must
+// degrade to "no surcharge" rather than ever breaking checkout, since this
+// whole feature is unverifiable-in-production until both of those are true.
+async function checkSurchargeEligibility(paymentIntentId, paymentMethodId) {
+  try {
+    const updated = await getStripeClient().paymentIntents.update(
+      paymentIntentId,
+      {
+        payment_method: paymentMethodId,
+        amount_details: { surcharge: { enforce_validation: 'enabled' } },
+      },
+      { apiVersion: CARD_SURCHARGE_API_VERSION }
+    );
+    const surcharge = updated.amount_details?.surcharge;
+    return {
+      baseAmount: updated.amount,
+      status: surcharge?.status === 'available' ? 'available' : 'unavailable',
+      maximumAmount: surcharge?.maximum_amount,
+    };
+  } catch (err) {
+    console.error(`Surcharge eligibility check failed for ${paymentIntentId} — proceeding without a surcharge:`, err);
+    return { baseAmount: null, status: 'unavailable', maximumAmount: undefined };
+  }
+}
+
+// Our own 3% (CARD_SURCHARGE_RATE), clamped to whatever technical ceiling
+// Stripe returned for this card/network/country — see checkSurchargeEligibility.
+function computeSurchargeCents(baseAmountCents, maximumAmountCents) {
+  const raw = Math.round(baseAmountCents * CARD_SURCHARGE_RATE);
+  return maximumAmountCents != null ? Math.min(raw, maximumAmountCents) : raw;
+}
+
+// Disclosure step only — never confirms the payment. Card-network rules
+// require showing the surcharge amount to the customer, with the ability to
+// cancel or pick a different card, before the charge actually happens; this
+// is what the frontend calls once it has a paymentMethodId (from
+// stripe.createPaymentMethod) but before it ever confirms anything.
+app.post('/api/checkout/surcharge-preview', async (req, res) => {
+  if (!CARD_SURCHARGE_ENABLED) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const { paymentIntentId, paymentMethodId } = req.body;
+  if (!paymentIntentId || !paymentMethodId) {
+    return res.status(400).json({ error: 'paymentIntentId and paymentMethodId are required.' });
+  }
+  const { baseAmount, status, maximumAmount } = await checkSurchargeEligibility(paymentIntentId, paymentMethodId);
+  const surchargeAmount =
+    status === 'available' && baseAmount != null ? computeSurchargeCents(baseAmount, maximumAmount) : 0;
+  const totalAmount = (baseAmount ?? 0) + surchargeAmount;
+  res.json({ surchargeAmount, totalAmount });
+});
+
+// Re-derives the surcharge itself (never trusts a client-supplied number for
+// anything that affects the charged amount) and confirms the PaymentIntent
+// server-side. A shape mismatch specifically on the surcharge-inclusive
+// confirm call falls back to a plain confirm at the base amount — a failed
+// validation error here leaves the PaymentIntent safely retryable, so this
+// fallback can't double-charge or corrupt anything.
+app.post('/api/checkout/confirm-payment', async (req, res) => {
+  if (!CARD_SURCHARGE_ENABLED) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const { paymentIntentId, paymentMethodId } = req.body;
+  if (!paymentIntentId || !paymentMethodId) {
+    return res.status(400).json({ error: 'paymentIntentId and paymentMethodId are required.' });
+  }
+  const returnUrl = `${req.protocol}://${req.get('host')}/checkout/complete`;
+
+  try {
+    const confirmWithoutSurcharge = () =>
+      getStripeClient().paymentIntents.confirm(paymentIntentId, {
+        payment_method: paymentMethodId,
+        return_url: returnUrl,
+      });
+
+    const { baseAmount, status, maximumAmount } = await checkSurchargeEligibility(paymentIntentId, paymentMethodId);
+    const surchargeAmount =
+      status === 'available' && baseAmount != null ? computeSurchargeCents(baseAmount, maximumAmount) : 0;
+
+    // baseAmount is only null when the eligibility check itself couldn't
+    // reach Stripe — in that case we don't know a safe amount to confirm at
+    // all, so skip straight to the plain fallback (which confirms at
+    // whatever amount is already set on the PaymentIntent) rather than
+    // attempting amount_to_confirm: 0.
+    let confirmed;
+    if (baseAmount == null) {
+      confirmed = await confirmWithoutSurcharge();
+    } else {
+      try {
+        confirmed = await getStripeClient().paymentIntents.confirm(
+          paymentIntentId,
+          {
+            payment_method: paymentMethodId,
+            amount_to_confirm: baseAmount + surchargeAmount,
+            amount_details: { surcharge: { amount: surchargeAmount, enforce_validation: 'enabled' } },
+            return_url: returnUrl,
+          },
+          { apiVersion: CARD_SURCHARGE_API_VERSION }
+        );
+      } catch (err) {
+        console.error(`Surcharge-aware confirm failed for ${paymentIntentId} — retrying without a surcharge:`, err);
+        confirmed = await confirmWithoutSurcharge();
+      }
+    }
+
+    if (confirmed.status === 'succeeded') {
+      return res.json({ status: 'succeeded' });
+    }
+    if (confirmed.status === 'requires_action') {
+      return res.json({ status: 'requires_action', clientSecret: confirmed.client_secret });
+    }
+    return res.status(400).json({ error: 'Payment could not be completed.' });
+  } catch (err) {
+    console.error('Failed to confirm payment:', err);
+    res.status(500).json({ error: 'Payment failed. Please try again.' });
+  }
+});
+
+// Stripe's raw webhook payload, verified by signature — the authoritative,
+// server-to-server confirmation that a payment actually succeeded,
+// independent of whatever the browser's confirmPayment() call reported
+// (which a closed tab or dropped connection could lose entirely). For now
+// this only guards against checkout never being finalized after a real
+// successful charge (e.g. the tab closing between payment and the finalize
+// call below) — logging it clearly rather than leaving an already-charged
+// payment with no order behind it silently unnoticed. Needs req.rawBody
+// (see the express.json() verify hook above), not the parsed req.body —
+// the signature is computed over the exact original bytes.
+app.post('/api/stripe/webhook', async (req, res) => {
+  const signature = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = getStripeClient().webhooks.constructEvent(req.rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err);
+    return res.status(400).json({ error: 'Invalid signature.' });
+  }
+
+  if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+    if (paymentIntent.metadata?.finalized !== 'true') {
+      console.error(
+        `Stripe payment ${paymentIntent.id} succeeded but was never finalized into an order — check manually.`
+      );
+    }
+  }
+
+  res.json({ received: true });
+});
+
+// Persists real orders to DynamoDB once a real Stripe payment has actually
+// succeeded — prices/totals are computed server-side from PRODUCTS so the
+// client can't just send whatever total it wants. Guest checkout stays
+// fully supported: optionalAuth attaches req.user when a valid token is
+// present but never blocks the request, so a signed-in customer's orders
+// get a customerId stamped on and a guest's orders omit it entirely (the
+// customerId-createdAt-index GSI is sparse, so that's the intended shape).
+// contact/fulfillment apply to the whole checkout action and get stamped
+// onto each order created in it — required for everyone, signed in or not.
+// A cart can hold several orders at once (e.g. separate pickup batches), so
+// the request carries a list of orders, each with its own cookie/qty items.
+app.post('/api/checkout', optionalAuth, async (req, res) => {
+  // Spam protection for the shipping/USPS path specifically — checked first,
+  // before any other work, so an abusive IP is turned away as cheaply as
+  // possible. Unlike usps.js's global quota limiter (which stays
+  // non-blocking to protect capacity for everyone else), this one actually
+  // rejects the request: the point here is stopping a single bad actor, not
+  // preserving a shared resource.
+  if (req.body.fulfillment?.method === 'shipping' && !checkIpRateLimit(req.ip)) {
+    return res.status(429).json({
+      error: 'Too many shipping checkout attempts from this address. Please try again later.',
     });
   }
 
-  // Runs after every cheap, local, no-I/O check above (contact/fulfillment
-  // shape, redemption auth, item/qty validity, temperature-controlled vs.
-  // shipping conflict) so a request that was always going to be rejected for
-  // one of those reasons never burns a real USPS API call first — and so it
-  // never surfaces "couldn't verify address" when the actual problem is
-  // something unrelated, like a temperature-controlled item on a ship order.
-  // Set once verification fails non-blockingly (rate-limited or a genuine
-  // USPS outage/timeout) — after orders are persisted below, this queues
-  // them for automatic re-verification the moment the quota window resets.
+  const resolved = await resolveCheckoutRequest(req);
+  if (resolved.error) {
+    return res.status(resolved.status).json({ error: resolved.error });
+  }
+  const { contact, fulfillment, cart, totalPointsRequired } = resolved;
+
+  // Every checkout must be backed by a real, already-succeeded Stripe
+  // payment for the exact amount this request computes — never trust a
+  // client-supplied "it succeeded" flag. Retrieving fresh from Stripe (not
+  // trusting whatever the frontend's confirmPayment() callback reported)
+  // catches a tampered/replayed paymentIntentId, a still-pending payment, or
+  // a mismatched amount before anything is persisted. The finalized-metadata
+  // check stops the same successful payment being used for a second order.
+  const paymentIntentId = req.body.paymentIntentId;
+  if (!paymentIntentId) {
+    return res.status(400).json({ error: 'Payment is required to complete checkout.' });
+  }
+  const expectedAmount = Math.round(computeGrandTotal(cart, fulfillment) * 100);
+  let paymentIntent;
+  try {
+    // The preview apiVersion is required here whenever surcharging is on —
+    // without it, amount_details.surcharge is simply absent from the
+    // response even though the actual charge (paymentIntent.amount) already
+    // includes it, which made the amount-match check below fail every
+    // surcharged payment as a false "amount mismatch".
+    // retrieve(id, params, options) — unlike update()/confirm() (which have
+    // real params in that slot and reliably detect a request-options object
+    // passed there instead), retrieve() with no params sent apiVersion to
+    // Stripe as a literal (invalid) API parameter when passed positionally
+    // as the 2nd arg. The empty {} params object here is required so
+    // apiVersion lands in the 3rd (options) slot instead.
+    paymentIntent = CARD_SURCHARGE_ENABLED
+      ? await getStripeClient().paymentIntents.retrieve(paymentIntentId, {}, { apiVersion: CARD_SURCHARGE_API_VERSION })
+      : await getStripeClient().paymentIntents.retrieve(paymentIntentId);
+  } catch (err) {
+    console.error('Failed to retrieve payment intent:', err);
+    return res.status(400).json({ error: 'Could not verify payment. Please try again.' });
+  }
+  if (paymentIntent.status !== 'succeeded') {
+    return res.status(400).json({ error: 'Payment has not been completed.' });
+  }
+  // A surcharge (see /api/checkout/confirm-payment) adds to what Stripe
+  // actually charged beyond expectedAmount — amount_details.surcharge.amount
+  // is 0/absent whenever no surcharge applied, so this is a no-op then.
+  const surchargeAmount = paymentIntent.amount_details?.surcharge?.amount ?? 0;
+  if (paymentIntent.amount !== expectedAmount + surchargeAmount) {
+    return res.status(400).json({ error: 'Payment amount does not match this order.' });
+  }
+  if (paymentIntent.metadata?.finalized === 'true') {
+    return res.status(400).json({ error: 'This payment has already been used for an order.' });
+  }
+  // Marked immediately after verifying, before any persistence — the
+  // narrowest possible window for a double-submitted finalize request to
+  // slip past the check above and create duplicate orders from one payment.
+  await getStripeClient().paymentIntents.update(paymentIntentId, { metadata: { finalized: 'true' } });
+
+  // Runs after payment is confirmed (not before) so a request that was
+  // always going to be rejected here never wastes a real USPS API call —
+  // and after every cheap, local check above, for the same reason it always
+  // was. Set once verification fails non-blockingly (rate-limited or a
+  // genuine USPS outage/timeout) — after orders are persisted below, this
+  // queues them for automatic re-verification the moment the quota window
+  // resets.
   let addressNeedsRetry = false;
   if (fulfillment.method === 'shipping') {
     const result = await validateAddress(fulfillment.shippingAddress);
@@ -496,10 +832,14 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
       // USPS actively checked and said this address isn't deliverable — the
       // only case that blocks checkout. A USPS outage/timeout or rate-limit
       // ('error'/'rate_limited') or no credentials configured (verified ===
-      // null) must never block.
-      return res.status(400).json({
-        error: 'We couldn\'t verify that shipping address with USPS. Please double-check it and try again.',
-      });
+      // null) must never block. Payment already succeeded by this point, so
+      // this refunds it rather than just erroring out with the charge stuck.
+      return refundAndFail(
+        res,
+        paymentIntentId,
+        400,
+        'We couldn\'t verify that shipping address with USPS. Please double-check it and try again.'
+      );
     } else if (result.verified === false) {
       fulfillment.addressVerified = false; // couldn't be checked; kept as customer entered it
       addressNeedsRetry = true;
@@ -509,39 +849,75 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     // no retry, since there's nothing to retry against.
   }
 
-  // Spend points before persisting anything. If this fails (insufficient
-  // balance — including a race against a concurrent checkout), reject the
-  // whole checkout with nothing created; this ordering is what prevents ever
-  // handing out a free item that wasn't actually paid for in points.
+  // Spent after payment is confirmed, not before — unlike the old mock
+  // checkout, a failure here can no longer just reject the whole request
+  // with nothing created, since the customer has already been genuinely
+  // charged. See the redemptionSpendFailed handling below: the order still
+  // gets created regardless (the reward item was already included in what
+  // was charged), the points just can't be deducted.
   let balanceAfterSpend = null;
+  let redemptionSpendFailed = false;
   if (totalPointsRequired > 0) {
     try {
       balanceAfterSpend = await redeemRewardsPoints(req.user.customerId, totalPointsRequired);
+      if (balanceAfterSpend === null) redemptionSpendFailed = true;
     } catch (err) {
-      console.error('Failed to redeem rewards points:', err);
-      return res.status(500).json({ error: 'Failed to redeem rewards. Please try again.' });
+      console.error('Failed to redeem rewards points after payment succeeded:', err);
+      redemptionSpendFailed = true;
     }
-    if (balanceAfterSpend === null) {
-      return res.status(400).json({ error: 'Not enough rewards points.' });
+    if (redemptionSpendFailed) {
+      console.error(
+        `Order for ${contact.email} proceeding without deducting ${totalPointsRequired} points — payment ${paymentIntentId} already succeeded.`
+      );
     }
   }
 
   try {
+    // One PaymentIntent-level surcharge split across potentially several
+    // persisted order records (a checkout can hold multiple pickup
+    // batches) — prorated by each order's share of the pre-surcharge
+    // total, with the last order absorbing whatever cents rounding leaves
+    // over so the parts always sum to exactly surchargeAmount. This is a
+    // no-op (every share is 0) whenever no surcharge was actually applied.
+    const preSurchargeCentsByOrder = cart.orders.map((order) => {
+      const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
+      return Math.round((order.total + shippingFee) * 100);
+    });
+    const preSurchargeCentsSum = preSurchargeCentsByOrder.reduce((sum, cents) => sum + cents, 0);
+    let surchargeRemainingCents = surchargeAmount;
+    const surchargeCentsByOrder = preSurchargeCentsByOrder.map((cents, i) => {
+      if (i === cart.orders.length - 1) return surchargeRemainingCents;
+      const share = preSurchargeCentsSum > 0 ? Math.round((cents / preSurchargeCentsSum) * surchargeAmount) : 0;
+      surchargeRemainingCents -= share;
+      return share;
+    });
+
     const persistedOrders = [];
-    for (const order of cart.orders) {
+    for (const [i, order] of cart.orders.entries()) {
       const { items, total: subtotal } = order.toJSON();
       const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
+      const surchargeFee = surchargeCentsByOrder[i] / 100;
       const record = {
         orderId: randomUUID(),
         status: 'placed',
         items,
         subtotal,
         ...(fulfillment.method === 'shipping' && { shippingFee }),
-        total: subtotal + shippingFee,
+        ...(surchargeFee > 0 && { surchargeFee }),
+        total: subtotal + shippingFee + surchargeFee,
         contact,
         email: contact.email,
         fulfillment,
-        payment: null,
+        payment: {
+          provider: 'stripe',
+          paymentIntentId,
+          amount: paymentIntent.amount,
+          // Unprorated, authoritative surcharge total straight from Stripe
+          // (cents, matching `amount` above) — so reconciliation never has
+          // to re-sum prorated surchargeFee across sibling order records.
+          ...(surchargeAmount > 0 && { surchargeAmount }),
+          status: 'succeeded',
+        },
         createdAt: new Date().toISOString(),
         ...(req.user && { customerId: req.user.customerId }),
       };
@@ -588,7 +964,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     let rewards;
     if (req.user) {
       rewards = {};
-      if (totalPointsRequired > 0) rewards.spent = totalPointsRequired;
+      if (totalPointsRequired > 0 && !redemptionSpendFailed) rewards.spent = totalPointsRequired;
       const pointsEarned = Math.round(cart.grandTotal);
       try {
         const balance = await addRewardsPoints(req.user.customerId, pointsEarned);
@@ -605,11 +981,11 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
       orders: persistedOrders,
       grandTotal: cart.grandTotal,
       ...(rewards && { rewards }),
-      message: 'Order placed! (mock checkout — no payment was actually taken)',
+      message: 'Order placed!',
     });
   } catch (err) {
     console.error('Failed to persist order:', err);
-    res.status(500).json({ error: 'Failed to save your order. Please try again.' });
+    return refundAndFail(res, paymentIntentId, 500, 'Failed to save your order. Please try again.');
   }
 });
 
@@ -700,7 +1076,7 @@ const SALES_PERIODS = ['today', 'week', 'month', 'year', 'total'];
 // that's actually persisted on order.items (not the is_single/is_half_dozen
 // flags Order.js's in-memory physicalCookieCount getter reads) — same
 // weights, just re-expressed for the stored shape.
-const SIZE_LABEL_UNITS = { Single: 1, 'Half Dozen': 6, 'Full Dozen': 12 };
+const SIZE_LABEL_UNITS = { Single: 1, 'Half Dozen': 6, 'Full Dozen': 12, Batch: 24 };
 
 // 'month' and 'year' aren't handled here — they take an explicit year (and,
 // for 'month', a month) rather than always meaning "now"'s period, so each
@@ -745,7 +1121,13 @@ function aggregateSales(orders, externalSales) {
       itemEntry.revenue += item.price * item.qty;
       itemTotals.set(itemKey, itemEntry);
 
-      const cookies = (SIZE_LABEL_UNITS[item.sizeLabel] || 0) * item.qty;
+      // physicalCookieUnits (persisted per-item — see Order.js) wins when
+      // present, since a handful of items (e.g. gluten-free/sugar-free
+      // Brownie batches) don't match their sizeLabel's usual unit count.
+      // Falls back to the sizeLabel table for anything persisted before
+      // that field existed.
+      const unitsPerItem = item.physicalCookieUnits ?? SIZE_LABEL_UNITS[item.sizeLabel] ?? 0;
+      const cookies = unitsPerItem * item.qty;
       flavorTotals.set(item.flavor, (flavorTotals.get(item.flavor) || 0) + cookies);
     }
   }
@@ -761,10 +1143,10 @@ function aggregateSales(orders, externalSales) {
 // Staff's Sales dashboard — total revenue plus two rankings (by menu item,
 // and by individual cookie count) for a given period, via aggregateSales
 // above. Filtered by createdAt (when the order was placed), not
-// pickup/fulfillment time — this app's mock checkout already treats payment
-// as taken at order time. No GSI range-filters on createdAt alone (and
-// "total" needs everything anyway), so this scans the whole table like Past
-// Orders search's helpers do.
+// pickup/fulfillment time — payment is confirmed by Stripe before an order
+// is ever persisted, so createdAt already reflects when payment was taken.
+// No GSI range-filters on createdAt alone (and "total" needs everything
+// anyway), so this scans the whole table like Past Orders search's helpers do.
 //
 // The 'week' period additionally splits into a `days` array (Sunday through
 // Saturday, one aggregateSales result each) for Sales.jsx's day-by-day
@@ -908,8 +1290,8 @@ app.get('/api/orders/:id', requireAuth, requireActiveCustomer, async (req, res) 
 // pickupDate/pickupTime unchanged for a plain confirm, or new values (plus an
 // optional customer-visible note) for an edit — either way the result is the
 // same: a re-validated pickup time. Staff edits are held to the exact same
-// business-hours/notice-window rules a customer's own request would be
-// (validatePickupDateTime), not a looser staff-only path. Confirming/editing
+// business-hours rule a customer's own request would be (validatePickupDateTime),
+// not a looser staff-only path. Confirming/editing
 // the pickup time doubles as confirming the order itself — staff shouldn't
 // need a separate "Change Order Status" click for what's really one action.
 // Only bumps status forward out of 'placed'; an order already at 'confirmed'
@@ -929,13 +1311,16 @@ app.post(
         return res.status(400).json({ error: 'This order is not a pickup order.' });
       }
       const { pickupDate, pickupTime, note } = req.body;
-      // sameDay is always passed here (not read from the request) — the
-      // isActuallyToday check inside validatePickupDateTime is what actually
-      // gates the notice-floor bypass, so a staff edit to any date that isn't
-      // really today still gets held to the normal 24-hour rule.
-      const pickupError = validatePickupDateTime(pickupDate, pickupTime, true);
+      const pickupError = validatePickupDateTime(pickupDate, pickupTime);
       if (pickupError) {
         return res.status(400).json({ error: pickupError });
+      }
+      const noticeError = validateExtendedPickupNotice(
+        { method: 'pickup', pickupDate, pickupTime },
+        order.items.some((item) => isDietaryRestrictedType(item.type))
+      );
+      if (noticeError) {
+        return res.status(400).json({ error: noticeError });
       }
       const changed = pickupDate !== order.fulfillment.pickupDate || pickupTime !== order.fulfillment.pickupTime;
       const staffNote = note && String(note).trim() ? String(note).trim() : undefined;

@@ -132,6 +132,16 @@
   margin: 0.35rem 0 0;
 }
 
+.order-tracking-notice-note {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  background: #f4e9d8;
+  color: #3d2b1f;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .order-tracking-action-error {
   color: #b3261e;
   font-size: 0.85rem;

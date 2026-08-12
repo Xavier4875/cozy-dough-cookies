@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { US_STATES, ZIP_RE } from '../constants.js';
+import { US_STATES, ZIP_RE, sizeLabelWithMarker } from '../constants.js';
 import './ShippingAddressModal.css';
 
 function formatAddress({ line1, line2, city, state, zip }) {
@@ -195,7 +195,7 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
                 <ul className="cart-list">
                   {order.items.map((item) => (
                     <li key={item.cookie.id}>
-                      <span>{item.cookie.flavor} ({item.cookie.sizeLabel}) × {item.qty}</span>
+                      <span>{item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)}) × {item.qty}</span>
                       <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
                     </li>
                   ))}

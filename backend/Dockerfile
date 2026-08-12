@@ -3,6 +3,16 @@
 FROM node:22-alpine
 WORKDIR /app
 
+# Alpine has no timezone data or TZ setting by default, so Node's Date
+# would otherwise treat wall-clock numbers as UTC — but pickupDate/
+# pickupTime are plain Central-time wall-clock values (see
+# validatePickupDateTime in index.js), same as the browser's local time for
+# this single-location, Nebraska-based shop. Without this, the container's
+# "now" and the frontend's "now" disagree by the UTC offset, throwing off
+# the 24-hour pickup notice check.
+RUN apk add --no-cache tzdata
+ENV TZ=America/Chicago
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

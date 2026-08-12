@@ -1,11 +1,11 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useCart } from '../context/useCart.js';
 import CookieGrid from '../components/CookieGrid.jsx';
 import OrderSwitcher from '../components/OrderSwitcher.jsx';
 import Mascot from '../components/Mascot.jsx';
 import { usePublishHeight } from '../hooks/usePublishHeight.js';
 import { useScrollSpy } from '../hooks/useScrollSpy.js';
-import { COOKIE_SIZES as SIZES } from '../constants.js';
+import { COOKIE_SIZES as SIZES, MENU_CATEGORIES, DIETARY_CATEGORIES } from '../constants.js';
 import './MobileMenu.css';
 
 const SIZE_KEYS = SIZES.map((size) => size.key);
@@ -17,6 +17,7 @@ const SIZE_KEYS = SIZES.map((size) => size.key);
 function MobileMenu() {
   const { products, addCookieToActiveOrder, removeCookieFromActiveOrder, qtyInActiveOrder } =
     useCart();
+  const [activeCategory, setActiveCategory] = useState('regular');
   const sectionRefs = useRef({});
   const sizeNavRef = useRef(null);
   const menuHeaderRef = useRef(null);
@@ -41,35 +42,69 @@ function MobileMenu() {
         <OrderSwitcher />
       </div>
 
-      <div className="mobile-size-nav" ref={sizeNavRef}>
-        {SIZES.map((size) => (
+      <div className="menu-category-tabs">
+        {MENU_CATEGORIES.map((category) => (
           <button
-            key={size.key}
+            key={category.key}
             className={
-              'size-nav-btn' + (activeSize === size.key ? ' size-nav-btn--active' : '')
+              'menu-category-tab' +
+              (activeCategory === category.key ? ' menu-category-tab--active' : '')
             }
-            onClick={() => scrollToSize(size.key)}
+            onClick={() => setActiveCategory(category.key)}
           >
-            {size.label}
+            {category.label}
           </button>
         ))}
       </div>
 
-      {SIZES.map((size) => (
-        <section
-          key={size.key}
-          ref={(el) => (sectionRefs.current[size.key] = el)}
-          className="size-section"
-        >
-          <h2 className="size-section-title">{size.label}</h2>
+      {activeCategory === 'regular' ? (
+        <>
+          <div className="mobile-size-nav" ref={sizeNavRef}>
+            {SIZES.map((size) => (
+              <button
+                key={size.key}
+                className={
+                  'size-nav-btn' + (activeSize === size.key ? ' size-nav-btn--active' : '')
+                }
+                onClick={() => scrollToSize(size.key)}
+              >
+                {size.label}
+              </button>
+            ))}
+          </div>
+
+          {SIZES.map((size) => (
+            <section
+              key={size.key}
+              ref={(el) => (sectionRefs.current[size.key] = el)}
+              className="size-section"
+            >
+              <h2 className="size-section-title">{size.label}</h2>
+              <CookieGrid
+                products={products.filter((p) => p[size.flag])}
+                addCookieToActiveOrder={addCookieToActiveOrder}
+                removeCookieFromActiveOrder={removeCookieFromActiveOrder}
+                qtyInActiveOrder={qtyInActiveOrder}
+              />
+            </section>
+          ))}
+        </>
+      ) : (
+        <>
+          <p className="menu-batch-note">One batch is equal to two dozen cookies.</p>
           <CookieGrid
-            products={products.filter((p) => p[size.flag])}
+            products={products.filter((p) =>
+              DIETARY_CATEGORIES[activeCategory].typeOrder.includes(p.type)
+            )}
+            typeOrder={DIETARY_CATEGORIES[activeCategory].typeOrder}
+            typeLabels={DIETARY_CATEGORIES[activeCategory].typeLabels}
+            priceUnitLabel="per batch"
             addCookieToActiveOrder={addCookieToActiveOrder}
             removeCookieFromActiveOrder={removeCookieFromActiveOrder}
             qtyInActiveOrder={qtyInActiveOrder}
           />
-        </section>
-      ))}
+        </>
+      )}
     </div>
   );
 }
