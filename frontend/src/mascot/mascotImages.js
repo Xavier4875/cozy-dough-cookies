@@ -3,6 +3,8 @@ import bakingCookies from '../assets/mascot/baking_cookies.png';
 import drinkingHotChocolate from '../assets/mascot/drinking_hot_chocolate.png';
 import goingForAStroll from '../assets/mascot/going_for_a_stroll.png';
 import roastingMarshmallow from '../assets/mascot/roasting_marshmallow.png';
+import takingCookiesOutOfOven from '../assets/mascot/taking_cookies_out_of_oven.png';
+import sleeping from '../assets/mascot/sleeping.png';
 
 export const MASCOT_IMAGES = [
   enjoyingACookie,
@@ -10,6 +12,8 @@ export const MASCOT_IMAGES = [
   drinkingHotChocolate,
   goingForAStroll,
   roastingMarshmallow,
+  takingCookiesOutOfOven,
+  sleeping,
 ];
 
 function shuffle(items) {

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useCart } from '../context/useCart.js';
+import { useAuth } from '../context/useAuth.js';
 import CookieGrid from '../components/CookieGrid.jsx';
 import OrderSwitcher from '../components/OrderSwitcher.jsx';
 import Mascot from '../components/Mascot.jsx';
@@ -15,8 +16,15 @@ const SIZE_KEYS = SIZES.map((size) => size.key);
 // the size buttons are a single horizontally-scrollable row instead of
 // wrapping onto a second line.
 function MobileMenu() {
-  const { products, addCookieToActiveOrder, removeCookieFromActiveOrder, qtyInActiveOrder } =
-    useCart();
+  const {
+    products,
+    addCookieToActiveOrder,
+    removeCookieFromActiveOrder,
+    qtyInActiveOrder,
+    setProductSoldOut,
+  } = useCart();
+  const { isAuthenticated, user } = useAuth();
+  const isStaff = isAuthenticated && user.role === 'staff';
   const [activeCategory, setActiveCategory] = useState('regular');
   const sectionRefs = useRef({});
   const sizeNavRef = useRef(null);
@@ -85,6 +93,8 @@ function MobileMenu() {
                 addCookieToActiveOrder={addCookieToActiveOrder}
                 removeCookieFromActiveOrder={removeCookieFromActiveOrder}
                 qtyInActiveOrder={qtyInActiveOrder}
+                isStaff={isStaff}
+                onSetSoldOut={setProductSoldOut}
               />
             </section>
           ))}

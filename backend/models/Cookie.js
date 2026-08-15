@@ -144,6 +144,9 @@ export class Cookie {
     this.type = type;
     this.flavor = flavor;
     this.is_temperature_controlled = TEMPERATURE_CONTROLLED_FLAVORS.has(flavor);
+    // Staff-toggled via POST /api/products/:id/set-sold-out in index.js —
+    // in-memory only, same as the rest of this stubbed PRODUCTS catalog.
+    this.is_sold_out = false;
 
     // A handful of flavors are priced/weighed differently than the rest of
     // their type (currently just gluten-free/sugar-free Brownie, which
@@ -200,6 +203,7 @@ export class Cookie {
       type: this.type,
       flavor: this.flavor,
       is_temperature_controlled: this.is_temperature_controlled,
+      is_sold_out: this.is_sold_out,
       is_single: this.is_single,
       is_half_dozen: this.is_half_dozen,
       is_full_dozen: this.is_full_dozen,

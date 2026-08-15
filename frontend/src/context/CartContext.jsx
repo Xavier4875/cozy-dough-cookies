@@ -254,6 +254,28 @@ export function CartProvider({ children }) {
     }
   }
 
+  // Staff-only menu control (see the popup in CookieGrid.jsx). Updates the
+  // shared `products` list on success so every open menu view reflects the
+  // change immediately, without a full refetch.
+  async function setProductSoldOut(productId, is_sold_out) {
+    const token = await getIdToken();
+    const res = await fetch(`/api/products/${productId}/set-sold-out`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify({ is_sold_out }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update item.');
+    }
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? { ...p, is_sold_out: data.is_sold_out } : p))
+    );
+  }
+
   // Checks out every non-empty order in the cart together, then starts fresh.
   async function checkoutAll(details) {
     const payload = cart.toCheckoutPayload();
@@ -287,6 +309,7 @@ export function CartProvider({ children }) {
     removeCookieFromActiveOrder,
     removeCookieFromOrder,
     qtyInActiveOrder,
+    setProductSoldOut,
     startNewOrder,
     switchActiveOrder,
     removeOrder,

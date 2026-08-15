@@ -30,10 +30,79 @@
 }
 
 .cookie-card {
+  position: relative;
+}
+
+.cookie-card-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+}
+
+.cookie-card--sold-out .cookie-card-body {
+  opacity: 0.5;
+  filter: grayscale(70%);
+  pointer-events: none;
+}
+
+.cookie-sold-out-badge {
+  margin: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #b3261e;
+}
+
+.cookie-stock-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+}
+
+.cookie-stock-menu-trigger {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d8c3a5;
+  border-radius: 50%;
+  background: #fff;
+  color: #3d2b1f;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cookie-stock-menu-trigger:hover {
+  background: #f4e9d8;
+}
+
+.cookie-stock-menu-popup {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(61, 43, 31, 0.15);
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.cookie-stock-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
 }
 
 .cookie-image {

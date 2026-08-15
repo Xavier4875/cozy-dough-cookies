@@ -235,6 +235,29 @@ app.get('/api/products', (req, res) => {
   res.json(PRODUCTS);
 });
 
+// Staff-only menu control: marks an item in or out of stock. Mutates the
+// same in-memory PRODUCTS entry /api/products serves, so it's visible to
+// every customer on their next fetch — like the rest of this stubbed
+// catalog (see the PRODUCTS comment above), this doesn't persist across a
+// server restart yet.
+app.post(
+  '/api/products/:id/set-sold-out',
+  requireAuth,
+  requireActiveCustomer,
+  requireStaff,
+  async (req, res) => {
+    const cookie = PRODUCTS.find((p) => p.id === req.params.id);
+    if (!cookie) {
+      return res.status(404).json({ error: 'Unknown product id.' });
+    }
+    if (typeof req.body.is_sold_out !== 'boolean') {
+      return res.status(400).json({ error: 'is_sold_out must be true or false.' });
+    }
+    cookie.is_sold_out = req.body.is_sold_out;
+    res.json({ id: cookie.id, is_sold_out: cookie.is_sold_out });
+  }
+);
+
 // Server-authoritative reward catalog — the frontend fetches this rather
 // than hardcoding point costs, so display and enforcement can't drift apart.
 app.get('/api/rewards/catalog', (req, res) => {
@@ -444,6 +467,9 @@ async function resolveCheckoutRequest(req) {
       const cookie = PRODUCTS.find((p) => p.id === id);
       if (!cookie) {
         return { error: `Unknown product id: ${id}`, status: 400 };
+      }
+      if (cookie.is_sold_out) {
+        return { error: `${cookie.flavor} is sold out.`, status: 400 };
       }
       if (!Number.isInteger(qty) || qty <= 0) {
         return { error: `Invalid quantity for ${cookie.flavor}.`, status: 400 };
