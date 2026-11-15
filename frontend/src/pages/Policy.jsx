@@ -26,7 +26,7 @@ function Policy() {
       <section className="policy-section">
         <h2>Ordering &amp; Payment</h2>
         <ul>
-          <li>Each order must total at least $9 before shipping.</li>
+          <li>Each order must total at least $12 before shipping.</li>
           <li>
             On this website, we accept card, Apple Pay, and Google Pay through Stripe only &mdash;
             no cash, PayPal, Venmo, or Zelle.
@@ -56,10 +56,10 @@ function Policy() {
           <li>Pickup times can be scheduled up to 3 months in advance.</li>
           <li>Gluten-free and sugar-free orders need at least 48 hours&apos; notice to bake.</li>
           <li>
-            Gluten-free and sugar-free cookies are sold by the full batch only (24 cookies, or 19
-            for Brownie) &mdash; we can&apos;t split a batch or sell them individually.
+            Gluten-free and sugar-free cookies are sold by the full batch only (about 29 cookies)
+            &mdash; we can&apos;t split a batch or sell them individually.
           </li>
-          <li>Ice cream sandwiches and other temperature-controlled items are pickup only &mdash; they can&apos;t be shipped.</li>
+          <li>Temperature-controlled items (marked on the menu) are pickup only &mdash; they can&apos;t be shipped.</li>
           <li>Your pickup address is included in your order confirmation email.</li>
           <li>
             You have 24 hours after your confirmed pickup time to pick up your order. If we

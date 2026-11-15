@@ -83,8 +83,9 @@ export class Order {
         // Persisted so sales aggregation (which reads stored orders, not
         // live Cookie instances) can still get the right cookie count for
         // an item whose physicalCookieUnits doesn't match its sizeLabel's
-        // usual unit count — e.g. a gluten-free Brownie batch (19, not the
-        // usual 24). undefined for non-batch items, same as on Cookie.
+        // usual unit count — e.g. a gluten-free/sugar-free batch (29, not the
+        // 24 in the legacy table). undefined for items with no cookie count,
+        // same as on Cookie.
         physicalCookieUnits: item.cookie.physicalCookieUnits,
         qty: item.qty,
       })),

@@ -25,9 +25,7 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
   const [paymentStep, setPaymentStep] = useState('idle'); // 'idle' | 'creating' | 'ready'
   const [pendingDetails, setPendingDetails] = useState(null);
   const [clientSecret, setClientSecret] = useState(null);
-  const [paymentIntentId, setPaymentIntentId] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState(0);
-  const [surchargeEnabled, setSurchargeEnabled] = useState(false);
   const [paymentError, setPaymentError] = useState('');
 
   // Guest-only email verification. `verifiedEmail` is the exact (lowercased)
@@ -164,9 +162,7 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
     try {
       const result = await onCreatePaymentIntent(details);
       setClientSecret(result.clientSecret);
-      setPaymentIntentId(result.paymentIntentId);
       setPaymentAmount(result.amount);
-      setSurchargeEnabled(Boolean(result.surchargeEnabled));
       setPaymentStep('ready');
     } catch (err) {
       setPaymentError(err.message || 'Failed to start payment.');
@@ -208,19 +204,9 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
 
   if (paymentStep === 'ready') {
     return (
-      <Elements
-        stripe={stripePromise}
-        // paymentMethodCreation: 'manual' is required for the surcharge flow's
-        // stripe.createPaymentMethod({elements}) call (StripePaymentForm.jsx) —
-        // Stripe otherwise throws "your elements instance must be created with
-        // paymentMethodCreation: 'manual'". Left out entirely when surcharging
-        // is off so the plain stripe.confirmPayment() path is untouched.
-        options={surchargeEnabled ? { clientSecret, paymentMethodCreation: 'manual' } : { clientSecret }}
-      >
+      <Elements stripe={stripePromise} options={{ clientSecret }}>
         <StripePaymentForm
           amount={paymentAmount}
-          paymentIntentId={paymentIntentId}
-          surchargeEnabled={surchargeEnabled}
           onSuccess={handlePaymentSuccess}
           onBack={handlePaymentBack}
           submitting={submitting}

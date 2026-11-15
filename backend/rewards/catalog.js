@@ -1,13 +1,13 @@
 import { Cookie } from '../models/Cookie.js';
 import { POINTS_PER_DOLLAR } from '../constants.js';
 
-// 25 points per $1 of redemption value (a 4% return rate, matching the 1
-// point per $1 earned on purchases) — every reward's cost is derived from
+// 25 points per $1 of redemption value (POINTS_PER_DOLLAR — a 4% return rate,
+// since purchases earn 1 point per $1) — every reward's cost is derived from
 // the real menu price rather than hand-typed, so it can never drift out of
 // sync with Cookie.TYPES if prices ever change. The one exception, per the
-// owner: standard/special singles are fixed at 50/75 points rather than the
-// formula (pointsOverride below) — deliberately below the 4% rate to keep
-// the cheapest rewards accessible.
+// owner: the standard and special singles are pinned to 50 and 75 points
+// (pointsOverride below), so those two cheapest rewards keep a fixed,
+// round cost even if their menu price changes.
 function reward(key, type, size, qty, sizeLabel, label, pointsOverride) {
   const price = Cookie.TYPES[type].prices[size];
   return {
@@ -19,9 +19,10 @@ function reward(key, type, size, qty, sizeLabel, label, pointsOverride) {
     label,
     points: pointsOverride ?? Math.round(price * qty * POINTS_PER_DOLLAR),
     // The real menu-equivalent dollar value this reward stands in for (e.g.
-    // Two Dozen Standard = $18 * 2 = $36), separate from the $0 it actually
-    // charges — used so a fully-redeemed order can still count toward the
-    // minimum-order-value checkout rule instead of always reading as $0.
+    // Two Dozen Standard = two Full Dozen Standard prices), separate from the
+    // $0 it actually charges — used so a fully-redeemed order can still count
+    // toward the minimum-order-value checkout rule instead of always reading
+    // as $0.
     value: price * qty,
     // Rough, type-level badge shown on the Rewards page before a flavor is
     // even picked. The real per-flavor answer is computed at redemption time

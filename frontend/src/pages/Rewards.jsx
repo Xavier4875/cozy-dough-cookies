@@ -4,14 +4,17 @@ import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
 import ImagePlaceholder from '../components/ImagePlaceholder.jsx';
 import RewardFlavorModal from '../components/RewardFlavorModal.jsx';
+import { rewardImageFor } from '../rewardImages.js';
 import './Rewards.css';
 
-// Tier boundaries mirror the natural gaps in the approved catalog's point
-// costs (see backend/rewards/catalog.js) — every reward lands in exactly one
-// tier, with no overlap or gap between them. Deliberately no hardcoded label
-// here — it's derived below from the rewards actually in each tier, so it
-// can never go stale (e.g. "40 – 120 pts" reading oddly once nothing left in
-// that band actually costs 40) the way a fixed string would as prices change.
+// Point-cost bands the rewards page groups its cards into (costs come from
+// backend/rewards/catalog.js) — every reward lands in exactly one tier, with
+// no overlap or gap between them (a band with no rewards is skipped). If menu
+// prices change enough to shift the costs, revisit these boundaries so the
+// bands still split the rewards sensibly.
+// Deliberately no hardcoded label here — it's derived below from the rewards
+// actually in each tier (e.g. "50 – 75 pts"), so the displayed range can't go
+// stale the way a fixed string would as prices change.
 const TIERS = [
   { min: 0, max: 120 },
   { min: 121, max: 360 },
@@ -83,9 +86,14 @@ function Rewards() {
               {tierRewards.map((reward) => {
                 const redeemed = isRedeemed(reward);
                 const canAfford = availableRewardsPoints >= reward.points;
+                const imageSrc = rewardImageFor(reward.key);
                 return (
                   <div key={reward.key} className="reward-card">
-                    <ImagePlaceholder label={reward.label} aspectRatio="1 / 1" />
+                    {imageSrc ? (
+                      <img src={imageSrc} alt={reward.label} className="reward-image" />
+                    ) : (
+                      <ImagePlaceholder label={reward.label} aspectRatio="1 / 1" />
+                    )}
                     <p className="reward-label">{reward.label}</p>
                     <p className="reward-points">{reward.points} pts</p>
                     {reward.is_temperature_controlled && (

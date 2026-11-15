@@ -3,9 +3,9 @@ import { updateOrderFulfillment } from '../db/ordersRepo.js';
 
 // In-memory only — matches the OAuth token cache in usps.js. If the backend
 // restarts before a queued retry fires, that retry is lost silently and the
-// order just stays addressVerified: false permanently (same end state as
-// today's "couldn't check it" case, just without the automatic follow-up).
-// Acceptable for a single-process, low-volume shop.
+// order just stays addressVerified: false permanently (the same end state as
+// an address USPS simply couldn't check, just without the automatic
+// follow-up). Acceptable for a single-process, low-volume shop.
 let pending = []; // [{ orderIds: string[], address }]
 let timerArmed = false;
 
@@ -48,7 +48,7 @@ async function processQueue() {
     } else if (result.reason !== 'rejected') {
       // Still rate-limited, or USPS is still unreachable/erroring — retry
       // again next window. Only a definitive 'rejected' gives up for good;
-      // there's no bounded retry limit otherwise (see plan's scope notes).
+      // there's deliberately no cap on the number of retries otherwise.
       pending.push({ orderIds, address });
     }
   }

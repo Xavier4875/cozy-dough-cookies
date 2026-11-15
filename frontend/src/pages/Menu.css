@@ -107,6 +107,17 @@
   margin-bottom: 2.5rem;
 }
 
+/* The last section can be short (or empty), too short for the page to scroll
+   far enough to bring its heading up under the sticky bars — so its nav
+   button would never stay highlighted. Giving it at least the visible height
+   below the sticky stack lets its heading always reach the resting spot. */
+.size-section:last-of-type {
+  min-height: calc(
+    100vh - var(--navbar-height, 64px) - var(--menu-header-height, 58px) -
+      var(--size-nav-height, 60px)
+  );
+}
+
 .size-section-title {
   margin: 0 0 1rem;
   font-size: 1.3rem;

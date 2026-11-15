@@ -1,10 +1,13 @@
-import enjoyingACookie from '../assets/mascot/enjoying_a_cookie.png';
-import bakingCookies from '../assets/mascot/baking_cookies.png';
-import drinkingHotChocolate from '../assets/mascot/drinking_hot_chocolate.png';
-import goingForAStroll from '../assets/mascot/going_for_a_stroll.png';
-import roastingMarshmallow from '../assets/mascot/roasting_marshmallow.png';
-import takingCookiesOutOfOven from '../assets/mascot/taking_cookies_out_of_oven.png';
-import sleeping from '../assets/mascot/sleeping.png';
+// Mascot poses are WebP, 520px tall — they render 170 CSS px tall, so that's
+// 3x for high-density phone screens. Full-size PNG originals are kept outside
+// the app, in image-originals/mascot/ at the project root.
+import enjoyingACookie from '../assets/mascot/enjoying_a_cookie.webp';
+import bakingCookies from '../assets/mascot/baking_cookies.webp';
+import drinkingHotChocolate from '../assets/mascot/drinking_hot_chocolate.webp';
+import goingForAStroll from '../assets/mascot/going_for_a_stroll.webp';
+import roastingMarshmallow from '../assets/mascot/roasting_marshmallow.webp';
+import takingCookiesOutOfOven from '../assets/mascot/taking_cookies_out_of_oven.webp';
+import sleeping from '../assets/mascot/sleeping.webp';
 
 export const MASCOT_IMAGES = [
   enjoyingACookie,

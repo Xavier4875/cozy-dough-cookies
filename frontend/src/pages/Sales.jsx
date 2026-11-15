@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
+import { sizeLabelWithMarker } from '../constants.js';
 import './Sales.css';
 
 const TABS = [
@@ -11,10 +12,10 @@ const TABS = [
   { value: 'total', label: 'Total' },
 ];
 
-// Tabs with real data wired up — the rest are real, clickable, and
-// correctly labeled, but show a placeholder until their data gets built
-// out. Expanding later is just fetching the same endpoint with a different
-// period, not new design work.
+// Tabs that fetch real data from /api/sales (every tab in TABS). A tab left
+// out of this list would still render, but show a "Coming soon." placeholder
+// — supporting it is just a matter of adding it here and handling that
+// period on the backend.
 const SUPPORTED_TABS = ['today', 'week', 'month', 'year', 'total'];
 
 // Fills in "No sales yet ___." when a supported tab's fetch comes back empty.
@@ -69,9 +70,9 @@ function SalesBreakdown({ data }) {
         ) : (
           <ol className="sales-rank-list">
             {data.itemsSold.map((item) => (
-              <li key={`${item.flavor}|${item.sizeLabel}`}>
+              <li key={`${item.flavor}|${sizeLabelWithMarker(item)}`}>
                 <span>
-                  {item.flavor} ({item.sizeLabel})
+                  {item.flavor} ({sizeLabelWithMarker(item)})
                 </span>
                 <span className="sales-rank-fill" aria-hidden="true" />
                 <span>
@@ -105,8 +106,8 @@ function SalesBreakdown({ data }) {
 
 // The business's first year of operation — the dropdown's floor. Its
 // ceiling is always the real current year (computed at render time, not a
-// fixed number), so next year's dropdown gains 2027 on its own the moment
-// the real calendar turns over, with no code change needed.
+// fixed number), so each new calendar year appears in the dropdown on its
+// own, with no code change needed.
 const BUSINESS_START_YEAR = 2025;
 
 // Shared by MonthNav and YearNav below — a plain year dropdown spanning

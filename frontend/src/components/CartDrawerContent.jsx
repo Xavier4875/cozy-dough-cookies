@@ -113,44 +113,51 @@ function CartDrawerContent() {
                     <p className="empty-cart">No cookies yet.</p>
                   ) : (
                     <ul className="cart-list">
-                      {order.items.map((item) => (
-                        <li key={item.cookie.id}>
-                          <span>
-                            {item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)})
-                            {item.cookie.isReward ? (
-                              <>
-                                {' '}× {item.qty}
-                                <button
-                                  className="remove-btn reward-remove-btn"
-                                  onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
-                                  aria-label={`Remove ${item.cookie.flavor} reward`}
-                                >
-                                  ×
-                                </button>
-                              </>
-                            ) : (
-                              <span className="cart-item-stepper">
-                                <button
-                                  className="stepper-btn stepper-btn--remove"
-                                  onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
-                                  aria-label={`Remove one ${item.cookie.flavor}`}
-                                >
-                                  −
-                                </button>
-                                <span className="stepper-qty">{item.qty}</span>
-                                <button
-                                  className="stepper-btn stepper-btn--add"
-                                  onClick={() => addCookieToOrder(order.id, item.cookie)}
-                                  aria-label={`Add one ${item.cookie.flavor}`}
-                                >
-                                  +
-                                </button>
-                              </span>
-                            )}
-                          </span>
-                          <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
-                        </li>
-                      ))}
+                      {order.items.map((item) => {
+                        // The same name shown on screen — with its size, GF/SF marker
+                        // and, for a bucket, its flavor — so the buttons below are
+                        // distinguishable by screen reader (the flavor alone would
+                        // read "Remove one Cozy Dough Bucket" for every bucket).
+                        const itemName = `${item.cookie.flavor} (${sizeLabelWithMarker(item.cookie)})`;
+                        return (
+                          <li key={item.cookie.id}>
+                            <span>
+                              {itemName}
+                              {item.cookie.isReward ? (
+                                <>
+                                  {' '}× {item.qty}
+                                  <button
+                                    className="remove-btn reward-remove-btn"
+                                    onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
+                                    aria-label={`Remove ${item.cookie.flavor} reward`}
+                                  >
+                                    ×
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="cart-item-stepper">
+                                  <button
+                                    className="stepper-btn stepper-btn--remove"
+                                    onClick={() => removeCookieFromOrder(order.id, item.cookie.id)}
+                                    aria-label={`Remove one ${itemName}`}
+                                  >
+                                    −
+                                  </button>
+                                  <span className="stepper-qty">{item.qty}</span>
+                                  <button
+                                    className="stepper-btn stepper-btn--add"
+                                    onClick={() => addCookieToOrder(order.id, item.cookie)}
+                                    aria-label={`Add one ${itemName}`}
+                                  >
+                                    +
+                                  </button>
+                                </span>
+                              )}
+                            </span>
+                            <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                   <div className="cart-order-footer">

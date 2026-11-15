@@ -3,12 +3,12 @@
 // the official amazon/dynamodb-local Docker image, so local dev can run
 // DynamoDB Local directly via Java instead of inside Docker. Running it
 // directly (not containerized) is what makes -dbPath persistence actually
-// work here — the containerized version's native SQLite binding can't open
-// its db file against Docker Desktop's volume backend on this machine, in
-// -inMemory or -dbPath, bind mount or named volume, tried all four. Reusing
-// the image (already pulled for docker-compose.yml) avoids a second
-// download from AWS and guarantees the exact same DynamoDB Local version
-// (3.3.0) already verified working.
+// work on Windows — the containerized version's native SQLite binding can't
+// open its db file against Docker Desktop's volume backend (neither a bind
+// mount nor a named volume), which is why docker-compose.yml runs it
+// -inMemory instead. Reusing the image (already pulled for
+// docker-compose.yml) avoids a second download from AWS and guarantees the
+// same DynamoDB Local version either way.
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';

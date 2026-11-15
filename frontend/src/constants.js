@@ -85,11 +85,10 @@ export const US_STATES = [
 export const SHIPPING_MEDIUM_MAX_COOKIES = 36;
 export const SHIPPING_FEE_MEDIUM = 24;
 export const SHIPPING_FEE_LARGE = 30;
-export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12, batch: 24 };
+export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12, batch: 29 };
 
-// Smallest subtotal (pre-shipping) a single order may check out with —
-// equivalent to a half dozen at standard pricing.
-export const MIN_ORDER_SUBTOTAL = 9;
+// Smallest subtotal (pre-shipping) a single order may check out with.
+export const MIN_ORDER_SUBTOTAL = 12;
 
 // Navigation tabs (shared between NavBar.jsx and MobileNavBar.jsx)
 export const NAV_TABS = [
@@ -99,18 +98,27 @@ export const NAV_TABS = [
   { to: '/nutrition', label: 'Nutrition', icon: '🥛' },
 ];
 
-// Cookie-size taxonomy (shared between Menu.jsx and MobileMenu.jsx)
+// Sections of the Regular menu, in display order (used by MenuContent.jsx) —
+// each one is a nav button plus a section of the page. `flag` is the boolean
+// on a product (from /api/products; set in backend/models/Cookie.js) that
+// places it in that section. Buckets and Cozy Rolls aren't cookie sizes, but
+// sit in the same list so they get the same nav button and scroll-spy
+// behavior. A brand-new section needs an entry here; a new product type
+// inside one of these sections needs nothing on the frontend.
 export const COOKIE_SIZES = [
   { key: 'single', flag: 'is_single', label: 'Singles' },
   { key: 'half_dozen', flag: 'is_half_dozen', label: 'Half Dozens' },
   { key: 'full_dozen', flag: 'is_full_dozen', label: 'Full Dozens' },
+  { key: 'bucket', flag: 'is_in_buckets', label: 'Buckets' },
+  { key: 'cozy_rolls', flag: 'is_cozy_rolls', label: 'Cozy Rolls' },
 ];
 
-// Top-level menu category tabs (shared between Menu.jsx and MobileMenu.jsx).
-// 'regular' uses the existing COOKIE_SIZES-driven layout above; the dietary
+// Top-level menu category tabs (used by MenuContent.jsx).
+// 'regular' uses the COOKIE_SIZES-driven layout above; the dietary
 // categories are a different shape entirely — no single/half/full dozen,
-// only a fixed 2-dozen batch — so they're driven by DIETARY_CATEGORIES
-// instead, keyed the same way as MENU_CATEGORIES' non-'regular' keys.
+// only whole batches (about 29 cookies each) plus their own Cozy Dough
+// Bucket — so they're driven by DIETARY_CATEGORIES instead, keyed the same
+// way as MENU_CATEGORIES' non-'regular' keys.
 export const MENU_CATEGORIES = [
   { key: 'regular', label: 'Regular' },
   { key: 'gluten_free', label: 'Gluten-Free' },
@@ -118,27 +126,47 @@ export const MENU_CATEGORIES = [
 ];
 
 // Backend's Cookie.TYPES has a matching `${category}_standard`/
-// `${category}_special` entry for each of these (no premium tier for
-// either) — this is just the display-side mirror of that, same reasoning as
-// COOKIE_SIZES above (no shared package between frontend/backend).
+// `${category}_special` batch entry for each of these (no premium tier for
+// either), plus a `${category}_bucket` type whose flavor-picker card is drawn
+// below the batches. This is just the display-side mirror of that, same
+// reasoning as the constants above (no shared package between
+// frontend/backend). `typeOrder`/`typeLabels` order and name the batch tiers
+// (any other type in the category still shows, after these). `batchNote` is
+// shown at the top of that tab, and `pickerHeading` is the heading over the
+// picker cards below the batches.
 export const DIETARY_CATEGORIES = {
   gluten_free: {
     typeOrder: ['gluten_free_standard', 'gluten_free_special'],
     typeLabels: { gluten_free_standard: 'Standard', gluten_free_special: 'Special' },
+    batchNote: 'One batch is about 29 cookies.',
+    pickerHeading: 'Buckets',
   },
   sugar_free: {
     typeOrder: ['sugar_free_standard', 'sugar_free_special'],
     typeLabels: { sugar_free_standard: 'Standard', sugar_free_special: 'Special' },
+    batchNote: 'One batch is about 29 cookies.',
+    pickerHeading: 'Buckets',
   },
 };
+
+// Which top-level menu tab (a MENU_CATEGORIES key) a product type belongs to.
+// Derived from the type name — the same gluten_free_* / sugar_free_* prefix
+// convention dietaryMarker below relies on — so a new type in either dietary
+// category lands on its tab without being listed anywhere here.
+export function menuCategoryOf(type) {
+  if (type?.startsWith('gluten_free')) return 'gluten_free';
+  if (type?.startsWith('sugar_free')) return 'sugar_free';
+  return 'regular';
+}
 
 // Short marker shown next to a gluten-free/sugar-free item's flavor
 // wherever it's displayed (menu, cart drawer, checkout) — derived from
 // `type` rather than a separate stored flag, same source of truth as
 // DIETARY_CATEGORIES above.
 export function dietaryMarker(type) {
-  if (type?.startsWith('gluten_free')) return 'GF';
-  if (type?.startsWith('sugar_free')) return 'SF';
+  const category = menuCategoryOf(type);
+  if (category === 'gluten_free') return 'GF';
+  if (category === 'sugar_free') return 'SF';
   return null;
 }
 

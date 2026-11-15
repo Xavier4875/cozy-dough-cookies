@@ -9,11 +9,12 @@ import {
   dietaryMarker,
   sizeLabelWithMarker,
 } from '../constants.js';
+import { describePaymentMethod } from '../paymentMethod.js';
 import './OrderTracking.css';
 
 // Time-slot options for the staff pickup-time edit form — same grid-of-
 // buttons approach as the customer's PickupScheduleModal, just built inline
-// here rather than imported, since this list is otherwise unused this file.
+// here rather than imported, since nothing outside this file uses this list.
 const PICKUP_TIME_SLOTS = [];
 for (let minutes = PICKUP_OPEN_MINUTES; minutes <= PICKUP_CLOSE_MINUTES; minutes += 15) {
   const hour = Math.floor(minutes / 60);
@@ -502,19 +503,13 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
               <td>${order.shippingFee.toFixed(2)}</td>
             </tr>
           )}
-          {order.surchargeFee !== undefined && (
-            <tr>
-              <th>Card surcharge</th>
-              <td>${order.surchargeFee.toFixed(2)}</td>
-            </tr>
-          )}
           <tr>
             <th>Total</th>
             <td>${order.total.toFixed(2)}</td>
           </tr>
           <tr>
             <th>Payment Method</th>
-            <td>Card on file (placeholder)</td>
+            <td>{describePaymentMethod(order.payment)}</td>
           </tr>
           {order.fulfillment?.method && (
             <tr>
@@ -778,9 +773,10 @@ function OrderTracking() {
     };
   }, [isStaff, tab, recentOrdersFetched]);
 
-  // Edit's Save handler — purely a fulfillment-record update now (the
-  // backend no longer touches order.status here), so this works identically
-  // regardless of what stage the order is currently in.
+  // Save handler for confirming or editing a pickup time. The backend saves
+  // the new time and, for an order still at 'placed', also moves it to
+  // 'confirmed' (see confirm-pickup in backend/index.js); an order already
+  // past 'placed' keeps its stage, so this works in any stage.
   //
   // Re-checks the picked time against a freshly-read now before ever
   // touching the network — the grid's "grayed out" state only updates on a

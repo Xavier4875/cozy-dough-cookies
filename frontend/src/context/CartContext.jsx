@@ -148,9 +148,10 @@ export function CartProvider({ children }) {
       flavors,
       sizeLabel: reward.sizeLabel,
       price: 0,
-      // Real menu-equivalent value (e.g. Two Dozen Standard = $36), not the
-      // $0 actually charged — reward.value comes straight from the catalog
-      // endpoint, so it can't drift from Cookie.TYPES pricing server-side.
+      // Real menu-equivalent value (e.g. Two Dozen Standard = two Full Dozen
+      // Standard prices), not the $0 actually charged — reward.value comes
+      // straight from the catalog endpoint, so it can't drift from
+      // Cookie.TYPES pricing server-side.
       value: reward.value,
       // Real per-flavor answer, looked up from the same products list the
       // Menu page uses — no new fetch needed, one Cookie already exists per
@@ -256,20 +257,31 @@ export function CartProvider({ children }) {
 
   // Staff-only menu control (see the popup in CookieGrid.jsx). Updates the
   // shared `products` list on success so every open menu view reflects the
-  // change immediately, without a full refetch.
+  // change immediately, without a full refetch. On any failure it throws an
+  // Error whose message is fit to show staff as-is: the server's own reason
+  // (expired sign-in, not staff, ...) when it gave one, otherwise a generic one.
   async function setProductSoldOut(productId, is_sold_out) {
     const token = await getIdToken();
-    const res = await fetch(`/api/products/${productId}/set-sold-out`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: JSON.stringify({ is_sold_out }),
-    });
-    const data = await res.json();
+    let res;
+    try {
+      res = await fetch(`/api/products/${encodeURIComponent(productId)}/set-sold-out`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ is_sold_out }),
+      });
+    } catch {
+      throw new Error('Could not reach the server. Please try again.');
+    }
+    // A proxy error page (e.g. a 502 while the backend restarts) isn't JSON.
+    const data = await res.json().catch(() => null);
     if (!res.ok) {
-      throw new Error(data.error || 'Failed to update item.');
+      throw new Error(
+        data?.error ||
+          (data ? 'Failed to update item.' : 'The server is not responding. Please try again.')
+      );
     }
     setProducts((prev) =>
       prev.map((p) => (p.id === productId ? { ...p, is_sold_out: data.is_sold_out } : p))

@@ -81,7 +81,6 @@ export function buildOrderTableHtml(order) {
 
   const footerLines = [['Subtotal', order.subtotal]];
   if (order.shippingFee) footerLines.push(['Shipping', order.shippingFee]);
-  if (order.surchargeFee) footerLines.push(['Card surcharge', order.surchargeFee]);
   footerLines.push(['Total', order.total]);
 
   const footerRows = footerLines
@@ -118,7 +117,6 @@ export function buildOrderTableText(order) {
   );
   lines.push(`  Subtotal: ${formatMoney(order.subtotal)}`);
   if (order.shippingFee) lines.push(`  Shipping: ${formatMoney(order.shippingFee)}`);
-  if (order.surchargeFee) lines.push(`  Card surcharge: ${formatMoney(order.surchargeFee)}`);
   lines.push(`  Total: ${formatMoney(order.total)}`);
   return lines;
 }

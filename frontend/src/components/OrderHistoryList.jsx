@@ -144,11 +144,6 @@ function OrderCard({ order }) {
           Shipping &amp; handling: ${order.shippingFee.toFixed(2)}
         </p>
       )}
-      {order.surchargeFee !== undefined && (
-        <p className="receipt-order-pickup">
-          Card surcharge: ${order.surchargeFee.toFixed(2)}
-        </p>
-      )}
       <ul className="cart-list">
         {order.items.map((item) => (
           <li key={item.id}>

@@ -2,8 +2,9 @@ import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
-// SES is in sandbox mode until production access is requested — until then
-// it can only send to addresses that are themselves verified identities.
+// While the SES account is in sandbox mode (the default until production
+// access is granted), it can only send to addresses that are themselves
+// verified identities.
 // `html` is optional — when provided, SES sends a multipart message and
 // mail clients that render HTML show that instead of `text`, which stays as
 // the fallback for text-only clients either way.

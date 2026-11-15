@@ -9,7 +9,8 @@ WORKDIR /app
 # validatePickupDateTime in index.js), same as the browser's local time for
 # this single-location, Nebraska-based shop. Without this, the container's
 # "now" and the frontend's "now" disagree by the UTC offset, throwing off
-# the 24-hour pickup notice check.
+# the pickup-time checks (business hours, times already past, and the
+# 48-hour gluten-free/sugar-free notice).
 RUN apk add --no-cache tzdata
 ENV TZ=America/Chicago
 

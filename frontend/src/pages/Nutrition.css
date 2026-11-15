@@ -1,3 +1,104 @@
 .nutrition-page > * {
   margin-bottom: 1.25rem;
 }
+
+.nutrition-header {
+  text-align: center;
+}
+
+.nutrition-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a6d4b;
+}
+
+.nutrition-header h1 {
+  margin: 0;
+}
+
+/* Ordinary content blocks: a coloured edge, bold heading, easy line spacing. */
+.nutrition-section {
+  border-left: 4px solid #d8c3a5;
+  padding: 0.25rem 0 0.25rem 1.1rem;
+  margin-bottom: 1.75rem;
+}
+
+.nutrition-section h2,
+.nutrition-notice h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.3rem;
+  color: #3d2b1f;
+}
+
+.nutrition-section p,
+.nutrition-notice p {
+  margin: 0 0 0.8rem;
+  line-height: 1.65;
+}
+
+.nutrition-section p:last-child,
+.nutrition-notice p:last-child {
+  margin-bottom: 0;
+}
+
+/* The two notices are boxed so they can't be skimmed past. */
+.nutrition-notice {
+  padding: 1rem 1.1rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 8px;
+  background: #f4e9d8;
+  margin-bottom: 1.75rem;
+}
+
+.nutrition-notice--important {
+  border-color: #e0a8a1;
+  border-left: 4px solid #b3261e;
+  background: #fdf3f1;
+}
+
+.nutrition-notice--important h2 {
+  color: #b3261e;
+}
+
+.allergen-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.allergen-table thead th {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  background: #3d2b1f;
+  color: #fffaf3;
+  font-weight: 700;
+}
+
+.allergen-table thead th:first-child {
+  border-top-left-radius: 8px;
+}
+
+.allergen-table thead th:last-child {
+  border-top-right-radius: 8px;
+}
+
+.allergen-table tbody th,
+.allergen-table tbody td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid #eadfce;
+}
+
+.allergen-table tbody th {
+  font-weight: 700;
+  color: #3d2b1f;
+  width: 55%;
+}
+
+.allergen-table tbody tr:nth-child(even) {
+  background: #faf5ec;
+}

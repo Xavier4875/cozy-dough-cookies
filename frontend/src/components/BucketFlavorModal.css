@@ -1,0 +1,128 @@
+.bucket-flavor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.bucket-flavor-modal {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 1.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+/* The dialog takes focus programmatically when it opens (so screen readers
+   announce it); that isn't a control to point at, so no focus ring. */
+.bucket-flavor-modal:focus {
+  outline: none;
+}
+
+.bucket-flavor-modal h2 {
+  margin: 0 0 0.25rem;
+  color: #3d2b1f;
+}
+
+.bucket-flavor-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  border: none;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.bucket-flavor-close:hover {
+  color: #3d2b1f;
+}
+
+.bucket-flavor-subtitle {
+  margin: 0 0 1.25rem;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.bucket-flavor-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 1px solid #d8c3a5;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.bucket-flavor-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.bucket-flavor-option--sold-out {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.bucket-flavor-sold-out {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #b3261e;
+}
+
+.bucket-flavor-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.bucket-flavor-cancel-btn {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.bucket-flavor-cancel-btn:hover {
+  color: #3d2b1f;
+}
+
+/* .checkout-btn defaults to display:block/width:100% for its usual standalone
+   placement — override to sit inline next to Cancel. */
+.bucket-flavor-actions .checkout-btn {
+  display: inline-block;
+  width: auto;
+  margin-top: 0;
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 700;
+}
+
+.bucket-flavor-actions .checkout-btn:hover:not(:disabled) {
+  background: #1b5e20;
+}
+
+/* Dimmed green (rather than the global grey) so it still reads as the
+   "add" button before a flavor is picked. */
+.bucket-flavor-actions .checkout-btn:disabled {
+  background: #2e7d32;
+  opacity: 0.4;
+  cursor: not-allowed;
+}

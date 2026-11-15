@@ -30,10 +30,11 @@ function fulfillmentParagraphHtml(fulfillment, status) {
   return `${label}<br>${addressHtml}`;
 }
 
-// Fired by POST /api/orders/:id/confirm-pickup — a pure fulfillment-record
-// update, decoupled from order.status (see the comment on that endpoint in
-// index.js), so the headline message is entirely about the pickup time,
-// never about the order's stage. `changed` is whether the saved date/time
+// Fired by POST /api/orders/:id/confirm-pickup. That endpoint also moves an
+// order still at 'placed' to 'confirmed' (see the comment on it in index.js),
+// but this is the only email sent for the call — so the headline is about the
+// pickup time, and always says the order is confirmed. No separate
+// stage-change email goes out. `changed` is whether the saved date/time
 // actually differs from what the order had before this call; `note` is the
 // optional staff note that endpoint already supports; `order` supplies the
 // item/total breakdown (its fulfillment is the pre-update one — pickupDate/

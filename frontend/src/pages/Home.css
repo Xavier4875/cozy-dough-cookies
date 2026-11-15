@@ -2,7 +2,102 @@
   margin-bottom: 1.25rem;
 }
 
-.home-hero,
-.home-secondary {
-  min-height: 160px;
+/* Kept at the photo's own 3:2 shape rather than a wide banner crop, which
+   would slice through the subject's face. */
+.home-hero {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.home-page h1 {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+/* Extra room below the photo, since the first section heading follows it. */
+.home-hero {
+  margin-bottom: 1.75rem;
+}
+
+/* Each part of the story is its own clearly marked block: a coloured edge,
+   a bold heading, and comfortable line spacing for long reading. */
+.about-section {
+  border-left: 4px solid #d8c3a5;
+  padding: 0.25rem 0 0.25rem 1.1rem;
+  margin-bottom: 2.25rem;
+}
+
+.about-section h2 {
+  margin: 0 0 0.9rem;
+  font-size: 1.35rem;
+  color: #3d2b1f;
+}
+
+.about-section p {
+  margin: 0 0 0.9rem;
+  line-height: 1.7;
+}
+
+.about-section p:last-child {
+  margin-bottom: 0;
+}
+
+.about-section .about-emphasis {
+  font-weight: 700;
+  color: #3d2b1f;
+}
+
+.about-signoff {
+  text-align: center;
+  padding: 1.25rem 1rem;
+  border-top: 1px solid #d8c3a5;
+  border-bottom: 1px solid #d8c3a5;
+}
+
+.about-signoff p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.about-signoff .about-signature {
+  margin: 0.35rem 0 0.1rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #3d2b1f;
+}
+
+.about-signoff .about-role {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.about-scripture {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0.5rem 0.5rem 0;
+  text-align: center;
+}
+
+.about-scripture figure {
+  margin: 0;
+}
+
+.about-scripture blockquote {
+  margin: 0 0 0.35rem;
+}
+
+.about-scripture blockquote p {
+  margin: 0;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+.about-scripture figcaption {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
 }

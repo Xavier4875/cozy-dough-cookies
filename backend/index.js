@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, scanAll } from './db/client.js';
 import { EXTERNAL_SALES_TABLE } from './db/schema.js';
-import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS, isDietaryRestrictedType } from './models/Cookie.js';
+import { Cookie, TEMPERATURE_CONTROLLED_FLAVORS, isDietaryRestrictedType, dietaryMarker } from './models/Cookie.js';
 import { Order } from './models/Order.js';
 import { Cart } from './models/Cart.js';
 import {
@@ -56,6 +56,7 @@ import { buildPickupTimeEmail, buildStatusChangeEmail } from './email/orderStatu
 import { buildStaffNewOrderEmail } from './email/staffNotification.js';
 import { enqueue as enqueueEmailRetry } from './email/emailRetryQueue.js';
 import { getStripeClient } from './stripe/client.js';
+import { summarizePaymentMethod } from './stripe/paymentMethod.js';
 import {
   EMAIL_RE,
   PICKUP_DATE_RE,
@@ -68,8 +69,6 @@ import {
   UNITS_PER_SIZE,
   MIN_ORDER_SUBTOTAL,
   EMAIL_VERIFICATION_MAX_ATTEMPTS,
-  CARD_SURCHARGE_RATE,
-  CARD_SURCHARGE_API_VERSION,
 } from './constants.js';
 
 // Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
@@ -189,9 +188,6 @@ function validateFulfillment(fulfillment) {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-// Stays false until card-network advance notice is confirmed done AND
-// Surcharging is turned on in the Stripe Dashboard — neither is true yet.
-const CARD_SURCHARGE_ENABLED = process.env.ENABLE_CARD_SURCHARGE === 'true';
 
 // Must run before any app.get/post/put/patch/delete calls below — it
 // replaces those methods so every route registered afterward automatically
@@ -212,21 +208,34 @@ app.use(
   })
 );
 
-// Stubbed out for now — real data comes once DynamoDB is wired up.
+// The menu catalog. It lives in code (Cookie.TYPES), not in DynamoDB — only
+// customers, orders and the other records in db/schema.js are persisted — so
+// a menu change is a code change plus a redeploy.
 // One product per flavor per applicable size, built from Cookie's own
 // type->flavor->sizes table so the list isn't duplicated here — each type
 // declares its own `sizes` (e.g. gluten-free/sugar-free only ever have
 // 'batch'), so this doesn't need to know which types support which sizes.
+// Every checkout and sold-out lookup resolves a product by its id in this
+// list, so anything not built here can't be ordered.
 const PRODUCTS = [];
+const seenProductIds = new Set();
 for (const [type, info] of Object.entries(Cookie.TYPES)) {
   for (const flavor of info.flavors) {
     for (const size of info.sizes) {
-      PRODUCTS.push(new Cookie(type, flavor, size));
+      const product = new Cookie(type, flavor, size);
+      // Ids are derived from type/flavor/size (see Cookie.idFor), so two
+      // different products slugging to the same id would make one unreachable
+      // — better to refuse to start than to quietly sell the wrong thing.
+      if (seenProductIds.has(product.id)) {
+        throw new Error(`Duplicate product id "${product.id}" — rename one of the flavors.`);
+      }
+      seenProductIds.add(product.id);
+      PRODUCTS.push(product);
     }
   }
 }
 
-// Simple health check so the frontend has something to talk to right away.
+// Liveness check — returns 200 whenever the process is up and serving requests.
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Cozy Dough Cookies API is running' });
 });
@@ -237,9 +246,9 @@ app.get('/api/products', (req, res) => {
 
 // Staff-only menu control: marks an item in or out of stock. Mutates the
 // same in-memory PRODUCTS entry /api/products serves, so it's visible to
-// every customer on their next fetch — like the rest of this stubbed
-// catalog (see the PRODUCTS comment above), this doesn't persist across a
-// server restart yet.
+// every customer on their next fetch. The flag lives only in that in-memory
+// entry (see the PRODUCTS comment above), so it doesn't persist across a
+// backend restart — everything comes back in stock.
 app.post(
   '/api/products/:id/set-sold-out',
   requireAuth,
@@ -469,7 +478,7 @@ async function resolveCheckoutRequest(req) {
         return { error: `Unknown product id: ${id}`, status: 400 };
       }
       if (cookie.is_sold_out) {
-        return { error: `${cookie.flavor} is sold out.`, status: 400 };
+        return { error: `${cookie.flavor} (${cookie.sizeLabel}) is sold out.`, status: 400 };
       }
       if (!Number.isInteger(qty) || qty <= 0) {
         return { error: `Invalid quantity for ${cookie.flavor}.`, status: 400 };
@@ -595,137 +604,10 @@ app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) =
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       amount,
-      surchargeEnabled: CARD_SURCHARGE_ENABLED,
     });
   } catch (err) {
     console.error('Failed to create payment intent:', err);
     res.status(500).json({ error: 'Failed to start payment. Please try again.' });
-  }
-});
-
-// Attaches a payment method to a not-yet-confirmed PaymentIntent and asks
-// Stripe's (public-preview) surcharging feature whether this specific card
-// can be surcharged at all — it checks funding type (credit vs. debit/
-// prepaid) and country for us, which is exactly the check federal law
-// requires before ever adding a surcharge. Stripe doesn't pick the rate;
-// `maximum_amount` is only a technical ceiling, not a suggested amount — see
-// computeSurchargeCents below for where the actual 3% comes from.
-// Never throws: a preview-API shape change, the account not yet having
-// Surcharging enabled in the Dashboard, or any other failure here must
-// degrade to "no surcharge" rather than ever breaking checkout, since this
-// whole feature is unverifiable-in-production until both of those are true.
-async function checkSurchargeEligibility(paymentIntentId, paymentMethodId) {
-  try {
-    const updated = await getStripeClient().paymentIntents.update(
-      paymentIntentId,
-      {
-        payment_method: paymentMethodId,
-        amount_details: { surcharge: { enforce_validation: 'enabled' } },
-      },
-      { apiVersion: CARD_SURCHARGE_API_VERSION }
-    );
-    const surcharge = updated.amount_details?.surcharge;
-    return {
-      baseAmount: updated.amount,
-      status: surcharge?.status === 'available' ? 'available' : 'unavailable',
-      maximumAmount: surcharge?.maximum_amount,
-    };
-  } catch (err) {
-    console.error(`Surcharge eligibility check failed for ${paymentIntentId} — proceeding without a surcharge:`, err);
-    return { baseAmount: null, status: 'unavailable', maximumAmount: undefined };
-  }
-}
-
-// Our own 3% (CARD_SURCHARGE_RATE), clamped to whatever technical ceiling
-// Stripe returned for this card/network/country — see checkSurchargeEligibility.
-function computeSurchargeCents(baseAmountCents, maximumAmountCents) {
-  const raw = Math.round(baseAmountCents * CARD_SURCHARGE_RATE);
-  return maximumAmountCents != null ? Math.min(raw, maximumAmountCents) : raw;
-}
-
-// Disclosure step only — never confirms the payment. Card-network rules
-// require showing the surcharge amount to the customer, with the ability to
-// cancel or pick a different card, before the charge actually happens; this
-// is what the frontend calls once it has a paymentMethodId (from
-// stripe.createPaymentMethod) but before it ever confirms anything.
-app.post('/api/checkout/surcharge-preview', async (req, res) => {
-  if (!CARD_SURCHARGE_ENABLED) {
-    return res.status(404).json({ error: 'Not found.' });
-  }
-  const { paymentIntentId, paymentMethodId } = req.body;
-  if (!paymentIntentId || !paymentMethodId) {
-    return res.status(400).json({ error: 'paymentIntentId and paymentMethodId are required.' });
-  }
-  const { baseAmount, status, maximumAmount } = await checkSurchargeEligibility(paymentIntentId, paymentMethodId);
-  const surchargeAmount =
-    status === 'available' && baseAmount != null ? computeSurchargeCents(baseAmount, maximumAmount) : 0;
-  const totalAmount = (baseAmount ?? 0) + surchargeAmount;
-  res.json({ surchargeAmount, totalAmount });
-});
-
-// Re-derives the surcharge itself (never trusts a client-supplied number for
-// anything that affects the charged amount) and confirms the PaymentIntent
-// server-side. A shape mismatch specifically on the surcharge-inclusive
-// confirm call falls back to a plain confirm at the base amount — a failed
-// validation error here leaves the PaymentIntent safely retryable, so this
-// fallback can't double-charge or corrupt anything.
-app.post('/api/checkout/confirm-payment', async (req, res) => {
-  if (!CARD_SURCHARGE_ENABLED) {
-    return res.status(404).json({ error: 'Not found.' });
-  }
-  const { paymentIntentId, paymentMethodId } = req.body;
-  if (!paymentIntentId || !paymentMethodId) {
-    return res.status(400).json({ error: 'paymentIntentId and paymentMethodId are required.' });
-  }
-  const returnUrl = `${req.protocol}://${req.get('host')}/checkout/complete`;
-
-  try {
-    const confirmWithoutSurcharge = () =>
-      getStripeClient().paymentIntents.confirm(paymentIntentId, {
-        payment_method: paymentMethodId,
-        return_url: returnUrl,
-      });
-
-    const { baseAmount, status, maximumAmount } = await checkSurchargeEligibility(paymentIntentId, paymentMethodId);
-    const surchargeAmount =
-      status === 'available' && baseAmount != null ? computeSurchargeCents(baseAmount, maximumAmount) : 0;
-
-    // baseAmount is only null when the eligibility check itself couldn't
-    // reach Stripe — in that case we don't know a safe amount to confirm at
-    // all, so skip straight to the plain fallback (which confirms at
-    // whatever amount is already set on the PaymentIntent) rather than
-    // attempting amount_to_confirm: 0.
-    let confirmed;
-    if (baseAmount == null) {
-      confirmed = await confirmWithoutSurcharge();
-    } else {
-      try {
-        confirmed = await getStripeClient().paymentIntents.confirm(
-          paymentIntentId,
-          {
-            payment_method: paymentMethodId,
-            amount_to_confirm: baseAmount + surchargeAmount,
-            amount_details: { surcharge: { amount: surchargeAmount, enforce_validation: 'enabled' } },
-            return_url: returnUrl,
-          },
-          { apiVersion: CARD_SURCHARGE_API_VERSION }
-        );
-      } catch (err) {
-        console.error(`Surcharge-aware confirm failed for ${paymentIntentId} — retrying without a surcharge:`, err);
-        confirmed = await confirmWithoutSurcharge();
-      }
-    }
-
-    if (confirmed.status === 'succeeded') {
-      return res.json({ status: 'succeeded' });
-    }
-    if (confirmed.status === 'requires_action') {
-      return res.json({ status: 'requires_action', clientSecret: confirmed.client_secret });
-    }
-    return res.status(400).json({ error: 'Payment could not be completed.' });
-  } catch (err) {
-    console.error('Failed to confirm payment:', err);
-    res.status(500).json({ error: 'Payment failed. Please try again.' });
   }
 });
 
@@ -798,6 +680,8 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   // catches a tampered/replayed paymentIntentId, a still-pending payment, or
   // a mismatched amount before anything is persisted. The finalized-metadata
   // check stops the same successful payment being used for a second order.
+  // The charge is expanded so the order can record which card or wallet was
+  // actually used (see summarizePaymentMethod).
   const paymentIntentId = req.body.paymentIntentId;
   if (!paymentIntentId) {
     return res.status(400).json({ error: 'Payment is required to complete checkout.' });
@@ -805,20 +689,9 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   const expectedAmount = Math.round(computeGrandTotal(cart, fulfillment) * 100);
   let paymentIntent;
   try {
-    // The preview apiVersion is required here whenever surcharging is on —
-    // without it, amount_details.surcharge is simply absent from the
-    // response even though the actual charge (paymentIntent.amount) already
-    // includes it, which made the amount-match check below fail every
-    // surcharged payment as a false "amount mismatch".
-    // retrieve(id, params, options) — unlike update()/confirm() (which have
-    // real params in that slot and reliably detect a request-options object
-    // passed there instead), retrieve() with no params sent apiVersion to
-    // Stripe as a literal (invalid) API parameter when passed positionally
-    // as the 2nd arg. The empty {} params object here is required so
-    // apiVersion lands in the 3rd (options) slot instead.
-    paymentIntent = CARD_SURCHARGE_ENABLED
-      ? await getStripeClient().paymentIntents.retrieve(paymentIntentId, {}, { apiVersion: CARD_SURCHARGE_API_VERSION })
-      : await getStripeClient().paymentIntents.retrieve(paymentIntentId);
+    paymentIntent = await getStripeClient().paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge'],
+    });
   } catch (err) {
     console.error('Failed to retrieve payment intent:', err);
     return res.status(400).json({ error: 'Could not verify payment. Please try again.' });
@@ -826,11 +699,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   if (paymentIntent.status !== 'succeeded') {
     return res.status(400).json({ error: 'Payment has not been completed.' });
   }
-  // A surcharge (see /api/checkout/confirm-payment) adds to what Stripe
-  // actually charged beyond expectedAmount — amount_details.surcharge.amount
-  // is 0/absent whenever no surcharge applied, so this is a no-op then.
-  const surchargeAmount = paymentIntent.amount_details?.surcharge?.amount ?? 0;
-  if (paymentIntent.amount !== expectedAmount + surchargeAmount) {
+  if (paymentIntent.amount !== expectedAmount) {
     return res.status(400).json({ error: 'Payment amount does not match this order.' });
   }
   if (paymentIntent.metadata?.finalized === 'true') {
@@ -875,12 +744,12 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     // no retry, since there's nothing to retry against.
   }
 
-  // Spent after payment is confirmed, not before — unlike the old mock
-  // checkout, a failure here can no longer just reject the whole request
-  // with nothing created, since the customer has already been genuinely
-  // charged. See the redemptionSpendFailed handling below: the order still
-  // gets created regardless (the reward item was already included in what
-  // was charged), the points just can't be deducted.
+  // Spent after payment is confirmed, not before — so a failure here can't
+  // just reject the whole request with nothing created, since the customer
+  // has already been genuinely charged. See the redemptionSpendFailed
+  // handling below: the order still gets created regardless (the reward item
+  // was already included in what was charged), the points just can't be
+  // deducted.
   let balanceAfterSpend = null;
   let redemptionSpendFailed = false;
   if (totalPointsRequired > 0) {
@@ -899,38 +768,18 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   }
 
   try {
-    // One PaymentIntent-level surcharge split across potentially several
-    // persisted order records (a checkout can hold multiple pickup
-    // batches) — prorated by each order's share of the pre-surcharge
-    // total, with the last order absorbing whatever cents rounding leaves
-    // over so the parts always sum to exactly surchargeAmount. This is a
-    // no-op (every share is 0) whenever no surcharge was actually applied.
-    const preSurchargeCentsByOrder = cart.orders.map((order) => {
-      const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
-      return Math.round((order.total + shippingFee) * 100);
-    });
-    const preSurchargeCentsSum = preSurchargeCentsByOrder.reduce((sum, cents) => sum + cents, 0);
-    let surchargeRemainingCents = surchargeAmount;
-    const surchargeCentsByOrder = preSurchargeCentsByOrder.map((cents, i) => {
-      if (i === cart.orders.length - 1) return surchargeRemainingCents;
-      const share = preSurchargeCentsSum > 0 ? Math.round((cents / preSurchargeCentsSum) * surchargeAmount) : 0;
-      surchargeRemainingCents -= share;
-      return share;
-    });
-
+    const paymentMethod = summarizePaymentMethod(paymentIntent);
     const persistedOrders = [];
-    for (const [i, order] of cart.orders.entries()) {
+    for (const order of cart.orders) {
       const { items, total: subtotal } = order.toJSON();
       const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
-      const surchargeFee = surchargeCentsByOrder[i] / 100;
       const record = {
         orderId: randomUUID(),
         status: 'placed',
         items,
         subtotal,
         ...(fulfillment.method === 'shipping' && { shippingFee }),
-        ...(surchargeFee > 0 && { surchargeFee }),
-        total: subtotal + shippingFee + surchargeFee,
+        total: subtotal + shippingFee,
         contact,
         email: contact.email,
         fulfillment,
@@ -938,11 +787,8 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
           provider: 'stripe',
           paymentIntentId,
           amount: paymentIntent.amount,
-          // Unprorated, authoritative surcharge total straight from Stripe
-          // (cents, matching `amount` above) — so reconciliation never has
-          // to re-sum prorated surchargeFee across sibling order records.
-          ...(surchargeAmount > 0 && { surchargeAmount }),
           status: 'succeeded',
+          ...(paymentMethod && { method: paymentMethod }),
         },
         createdAt: new Date().toISOString(),
         ...(req.user && { customerId: req.user.customerId }),
@@ -1098,10 +944,13 @@ app.get('/api/orders/history', requireAuth, requireActiveCustomer, requireStaff,
 
 const SALES_PERIODS = ['today', 'week', 'month', 'year', 'total'];
 
-// Individual-cookie weight per box size, keyed on the sizeLabel string
-// that's actually persisted on order.items (not the is_single/is_half_dozen
-// flags Order.js's in-memory physicalCookieCount getter reads) — same
-// weights, just re-expressed for the stored shape.
+// Fallback cookie count per sizeLabel, for stored order items that have no
+// physicalCookieUnits of their own (see aggregateSales). Keyed on the
+// sizeLabel string persisted on order.items, since stored orders don't keep
+// the is_single/is_half_dozen flags Order.js's in-memory physicalCookieCount
+// reads. 'Batch' is 24 here on purpose: it's what a batch held before
+// batches became ~29 cookies (UNITS_PER_SIZE.batch), so older orders keep
+// their original counts. Anything not listed (buckets, Cozy Rolls) counts 0.
 const SIZE_LABEL_UNITS = { Single: 1, 'Half Dozen': 6, 'Full Dozen': 12, Batch: 24 };
 
 // 'month' and 'year' aren't handled here — they take an explicit year (and,
@@ -1134,27 +983,36 @@ function aggregateSales(orders, externalSales) {
   const externalRevenue = externalSales.reduce((sum, sale) => sum + sale.amount, 0);
   const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0) + externalRevenue;
 
-  const itemTotals = new Map(); // `${flavor}|${sizeLabel}` -> { flavor, sizeLabel, qty, revenue }
+  const itemTotals = new Map(); // `${flavor}|${sizeLabel}|${marker}` -> { flavor, sizeLabel, type, qty, revenue }
   const flavorTotals = new Map(); // flavor -> cookies
 
   for (const order of orders) {
     for (const item of order.items) {
       if (item.id.startsWith('reward-')) continue;
-      const itemKey = `${item.flavor}|${item.sizeLabel}`;
+      // The GF/SF marker is part of the key (and `type` is sent along so the
+      // Sales page can show it) — otherwise a regular, gluten-free and
+      // sugar-free item with the same name and size (e.g. the three Cozy
+      // Dough Buckets) would collapse into one row at mixed prices.
+      const itemKey = `${item.flavor}|${item.sizeLabel}|${dietaryMarker(item.type) ?? ''}`;
       const itemEntry =
-        itemTotals.get(itemKey) || { flavor: item.flavor, sizeLabel: item.sizeLabel, qty: 0, revenue: 0 };
+        itemTotals.get(itemKey) ||
+        { flavor: item.flavor, sizeLabel: item.sizeLabel, type: item.type, qty: 0, revenue: 0 };
       itemEntry.qty += item.qty;
       itemEntry.revenue += item.price * item.qty;
       itemTotals.set(itemKey, itemEntry);
 
       // physicalCookieUnits (persisted per-item — see Order.js) wins when
-      // present, since a handful of items (e.g. gluten-free/sugar-free
-      // Brownie batches) don't match their sizeLabel's usual unit count.
-      // Falls back to the sizeLabel table for anything persisted before
-      // that field existed.
+      // present, since a batch's real count (29) differs from the legacy
+      // SIZE_LABEL_UNITS entry. Falls back to that table for anything
+      // persisted before that field existed.
+      // Items with no cookie count at all (e.g. Cozy Dough Buckets, Cozy
+      // Rolls) are left out of this ranking entirely — they still show in
+      // itemsSold.
       const unitsPerItem = item.physicalCookieUnits ?? SIZE_LABEL_UNITS[item.sizeLabel] ?? 0;
-      const cookies = unitsPerItem * item.qty;
-      flavorTotals.set(item.flavor, (flavorTotals.get(item.flavor) || 0) + cookies);
+      if (unitsPerItem > 0) {
+        const cookies = unitsPerItem * item.qty;
+        flavorTotals.set(item.flavor, (flavorTotals.get(item.flavor) || 0) + cookies);
+      }
     }
   }
 
@@ -1316,12 +1174,15 @@ app.get('/api/orders/:id', requireAuth, requireActiveCustomer, async (req, res) 
 // pickupDate/pickupTime unchanged for a plain confirm, or new values (plus an
 // optional customer-visible note) for an edit — either way the result is the
 // same: a re-validated pickup time. Staff edits are held to the exact same
-// business-hours rule a customer's own request would be (validatePickupDateTime),
-// not a looser staff-only path. Confirming/editing
-// the pickup time doubles as confirming the order itself — staff shouldn't
-// need a separate "Change Order Status" click for what's really one action.
-// Only bumps status forward out of 'placed'; an order already at 'confirmed'
-// or beyond isn't moved backward or re-stamped by a later pickup-time edit.
+// rules a customer's own request would be (validatePickupDateTime, plus
+// validateExtendedPickupNotice for gluten-free/sugar-free orders), not a
+// looser staff-only path.
+// Confirming/editing the pickup time doubles as confirming the order itself —
+// staff shouldn't need a separate "Change Order Status" click for what's
+// really one action. Only bumps status forward out of 'placed'; an order
+// already at 'confirmed' or beyond isn't moved backward or re-stamped by a
+// later pickup-time edit. The response carries the saved fulfillment plus,
+// only when the status was bumped, the new status fields.
 app.post(
   '/api/orders/:id/confirm-pickup',
   requireAuth,
@@ -1675,7 +1536,7 @@ app.delete('/api/customers/me', requireAuth, async (req, res) => {
 // Registered last — Express only routes to a 4-arg middleware for errors,
 // which is exactly what asyncHandler (installAsyncErrorHandling above)
 // forwards a rejected route handler's error into via next(err). Every
-// endpoint now fails the same way (a clean JSON 500) instead of the request
+// endpoint fails the same way (a clean JSON 500) instead of the request
 // hanging or the process going down.
 app.use((err, req, res, next) => {
   console.error(`Unhandled error in ${req.method} ${req.originalUrl}:`, err);
@@ -1688,8 +1549,9 @@ app.use((err, req, res, next) => {
 // of this app's own setTimeout-based retry queues, which already catch
 // their own errors). Node's default behavior on either of these is to
 // crash anyway — this just logs clearly first, then exits deliberately so
-// the process supervisor (node --watch locally; a real one in production)
-// restarts a clean process rather than one left in a possibly-corrupted state.
+// the process supervisor (node --watch locally; a container orchestrator
+// such as ECS in production) restarts a clean process rather than one left
+// in a possibly-corrupted state.
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection reached the process boundary:', reason);
   process.exit(1);

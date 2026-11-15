@@ -91,8 +91,7 @@ export async function queryOrdersByCustomerId(customerId) {
 }
 
 // A guest's full order history, looked up by the email they checked out
-// with — the email-createdAt-index GSI has existed since the table was
-// created but had no caller until Past Orders needed one. Same shape as
+// with (via the email-createdAt-index GSI). Same shape as
 // queryOrdersByCustomerId (newest first).
 export async function queryOrdersByEmail(email) {
   const { Items } = await docClient.send(

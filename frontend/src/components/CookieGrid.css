@@ -12,6 +12,47 @@
   border-left-color: #1565c0;
 }
 
+.product-section--bucket {
+  border-left-color: #6d4c41;
+}
+
+.product-section--cozy_rolls {
+  border-left-color: #a0522d;
+}
+
+/* Same green as the +/− stepper's add button, so "add" reads the same
+   everywhere on the menu. */
+.add-btn.bucket-add-btn {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: #fff;
+  font-weight: 700;
+}
+
+.add-btn.bucket-add-btn:hover:not(:disabled) {
+  background: #1b5e20;
+  border-color: #1b5e20;
+}
+
+.add-btn.bucket-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cookie-price {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.cookie-description {
+  margin: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
 .product-section-title {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
@@ -105,6 +146,43 @@
   cursor: pointer;
 }
 
+.cookie-stock-menu-option:has(input:disabled) {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* The popup is nowrap for its short option labels; the status line wraps so a
+   longer failure reason stays readable instead of stretching the popup. */
+.cookie-stock-status {
+  margin: 0;
+  max-width: 12rem;
+  white-space: normal;
+  font-weight: 600;
+}
+
+.cookie-stock-status--saving {
+  color: #6b7280;
+}
+
+.cookie-stock-status--saved {
+  color: #2e7d32;
+}
+
+.cookie-stock-status--error {
+  color: #b3261e;
+}
+
+.cookie-stock-status-dismiss {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .cookie-image {
   width: 100%;
   object-fit: contain;
@@ -124,14 +202,6 @@
   font-size: 0.75rem;
   font-weight: 600;
   color: #1565c0;
-}
-
-.cookie-batch-note {
-  margin: 0;
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #6b7280;
 }
 
 .cookie-stepper {

@@ -27,11 +27,10 @@ export const ZIP_RE = /^\d{5}(-\d{4})?$/;
 export const SHIPPING_MEDIUM_MAX_COOKIES = 36;
 export const SHIPPING_FEE_MEDIUM = 24;
 export const SHIPPING_FEE_LARGE = 30;
-export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12, batch: 24 };
+export const UNITS_PER_SIZE = { single: 1, half_dozen: 6, full_dozen: 12, batch: 29 };
 
-// Smallest subtotal (pre-shipping) a single order may check out with —
-// equivalent to a half dozen at standard pricing.
-export const MIN_ORDER_SUBTOTAL = 9;
+// Smallest subtotal (pre-shipping) a single order may check out with.
+export const MIN_ORDER_SUBTOTAL = 12;
 
 // USPS/IP rate limiting defaults (env-overridable at each call site)
 export const USPS_RATE_LIMIT_MAX_CALLS_DEFAULT = 60;
@@ -48,10 +47,3 @@ export const EMAIL_VERIFICATION_VERIFIED_TTL_MS = 30 * 60 * 1000; // window to c
 export const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 export const EMAIL_VERIFICATION_RATE_LIMIT_MAX_CALLS_DEFAULT = 5;
 export const EMAIL_VERIFICATION_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;
-
-// Card surcharge (Stripe's public-preview surcharging feature — see
-// checkSurchargeEligibility in index.js). Stripe doesn't decide the rate;
-// it only validates whatever we send against card-network technical caps
-// and blocks it on debit/prepaid. Gated off by ENABLE_CARD_SURCHARGE.
-export const CARD_SURCHARGE_RATE = 0.03;
-export const CARD_SURCHARGE_API_VERSION = '2026-03-25.preview';
