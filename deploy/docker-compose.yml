@@ -1,0 +1,61 @@
+# Production stack for a single EC2 instance. Lives at /opt/cozy-dough/ on the
+# server next to:
+#   backend/          the backend source (built into an image here)
+#   site/             the built frontend (frontend/dist from `npm run build`)
+#   Caddyfile         the TLS/proxy config beside this file
+#   backend.env       secrets + config — created on the server by hand, never
+#                     shipped in the bundle (see backend.env.example)
+#
+# Caddy is the only thing listening on the internet (80/443). It gets and
+# renews the HTTPS certificate by itself, serves the static site, and forwards
+# /api/* to the backend over the private compose network — the backend port is
+# not published, which is also what makes TRUST_PROXY_HOPS=1 safe (nobody can
+# reach the backend directly to forge X-Forwarded-For).
+#
+# AWS access comes from the instance's IAM role, not keys: leave
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / DYNAMODB_ENDPOINT out of
+# backend.env. (The instance must allow 2 metadata hops so containers can
+# reach the role credentials — see README "Deploying to EC2".)
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend.env
+    environment:
+      # One reverse proxy (Caddy) in front: makes req.ip the visitor's address
+      # so the per-IP rate limits work per visitor, not per proxy.
+      TRUST_PROXY_HOPS: "1"
+    expose:
+      - "4000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv:ro
+      # Certificates + ACME account. Must persist: re-requesting on every
+      # restart would run into Let's Encrypt's rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

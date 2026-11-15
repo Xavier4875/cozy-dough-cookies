@@ -155,6 +155,17 @@ function OrderCard({ order }) {
         ))}
       </ul>
       <p className="cart-total">Order total: ${order.total.toFixed(2)}</p>
+      {order.status === 'canceled' && order.refund && (
+        <p className="receipt-order-pickup">
+          Refunded ${(order.refund.amount / 100).toFixed(2)} to your original payment method.
+        </p>
+      )}
+      {order.status === 'canceled' && order.pointsAdjustment?.spentReturned > 0 && (
+        <p className="receipt-order-pickup">
+          {order.pointsAdjustment.spentReturned} reward point{order.pointsAdjustment.spentReturned === 1 ? '' : 's'}{' '}
+          returned to your account.
+        </p>
+      )}
     </div>
   );
 }

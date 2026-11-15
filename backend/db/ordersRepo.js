@@ -1,14 +1,45 @@
-import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { createHash } from 'node:crypto';
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, scanAll } from './client.js';
-import { ORDERS_TABLE } from './schema.js';
+import { CUSTOMERS_TABLE, ORDERS_TABLE } from './schema.js';
 
+// The id of the nth order created from one Stripe payment. Derived from the
+// payment (not random) on purpose: createOrder refuses to overwrite an
+// existing id, so two checkout requests racing to finalize the same payment
+// collide on the same ids and exactly one of them can win — DynamoDB itself is
+// the lock. UUID-shaped like the random ids it replaced, so nothing that reads
+// an orderId cares. Also lets anything holding a payment id (the webhook's
+// "was this ever turned into an order?" check) look the orders up directly.
+export function deterministicOrderId(paymentIntentId, index) {
+  const hex = createHash('sha256').update(`order:${paymentIntentId}:${index}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+// Thrown by createOrder when an order with that id already exists.
+export class DuplicateOrderError extends Error {
+  constructor(orderId) {
+    super(`An order with id ${orderId} already exists.`);
+    this.name = 'DuplicateOrderError';
+    this.orderId = orderId;
+  }
+}
+
+// Writes a brand-new order, and only if its id isn't taken — never an
+// overwrite. A caller that gets DuplicateOrderError knows another request
+// already created it.
 export async function createOrder(record) {
-  await docClient.send(
-    new PutCommand({
-      TableName: ORDERS_TABLE,
-      Item: record,
-    })
-  );
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: ORDERS_TABLE,
+        Item: record,
+        ConditionExpression: 'attribute_not_exists(orderId)',
+      })
+    );
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') throw new DuplicateOrderError(record.orderId);
+    throw err;
+  }
   return record;
 }
 
@@ -65,6 +96,124 @@ export async function setOrderStatus(orderId, updates) {
       ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
     })
   );
+}
+
+// Corrects the reward points recorded on orders after the fact. Used when the
+// points a checkout meant to move never did (the spend was refused, or awarding
+// gave up), so a later cancel doesn't return or take back points that were
+// never actually moved. Only the fields given are touched.
+export async function updateOrderPoints(orderId, { pointsEarned, pointsSpent }) {
+  const sets = [];
+  const names = {};
+  const values = {};
+  for (const [key, value] of Object.entries({ pointsEarned, pointsSpent })) {
+    if (value === undefined) continue;
+    sets.push(`#${key} = :${key}`);
+    names[`#${key}`] = key;
+    values[`:${key}`] = value;
+  }
+  if (sets.length === 0) return;
+  await docClient.send(
+    new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { orderId },
+      UpdateExpression: `SET ${sets.join(', ')}`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+    })
+  );
+}
+
+// Marks an order canceled and, in the same all-or-nothing write, moves its
+// reward points back: the points it earned come off the customer's balance and
+// the points it spent on redeemed rewards are returned. Doing both in one
+// DynamoDB transaction is what makes the points move exactly once — a second
+// cancel racing the first (a double-click, a retry) fails the status condition
+// and so changes nothing, and the order can never end up canceled with its
+// points still unadjusted.
+//
+// `points` is { earned, spent } from pointsToReverse(), or zeros when staff
+// canceled without a refund (the customer paid and keeps what they earned).
+// The balance is allowed to dip below zero: if the customer already spent
+// points this order earned, the shortfall is simply owed back, and the
+// existing redemption check (balance >= cost) keeps them from spending more
+// until they've earned it.
+//
+// Returns { canceled: false } if the order was already canceled or completed
+// (nothing written), else { canceled: true, pointsAdjusted } where
+// pointsAdjusted is { earned, spent } or null if no points moved.
+export async function cancelOrderRecord(order, { canceledAt, refund, refundSkipped, points }) {
+  const { earned = 0, spent = 0 } = points ?? {};
+  const moveFor = order.customerId && (earned > 0 || spent > 0) ? order.customerId : null;
+
+  const sets = ['#status = :canceled', '#canceledAt = :canceledAt'];
+  const names = { '#status': 'status', '#canceledAt': 'canceledAt' };
+  const values = { ':canceled': 'canceled', ':canceledAt': canceledAt, ':completed': 'completed' };
+  if (refund) {
+    sets.push('#refund = :refund');
+    names['#refund'] = 'refund';
+    values[':refund'] = refund;
+  }
+  if (refundSkipped) {
+    sets.push('#refundSkipped = :refundSkipped');
+    names['#refundSkipped'] = 'refundSkipped';
+    values[':refundSkipped'] = true;
+  }
+  const orderUpdate = (withPoints) => ({
+    TableName: ORDERS_TABLE,
+    Key: { orderId: order.orderId },
+    UpdateExpression: `SET ${[
+      ...sets,
+      ...(withPoints ? ['#pointsAdjustment = :pointsAdjustment'] : []),
+    ].join(', ')}`,
+    ConditionExpression: 'NOT (#status IN (:canceled, :completed))',
+    ExpressionAttributeNames: { ...names, ...(withPoints && { '#pointsAdjustment': 'pointsAdjustment' }) },
+    ExpressionAttributeValues: {
+      ...values,
+      ...(withPoints && { ':pointsAdjustment': { earnedTakenBack: earned, spentReturned: spent } }),
+    },
+  });
+
+  const orderOnly = async () => {
+    try {
+      await docClient.send(new UpdateCommand(orderUpdate(false)));
+      return { canceled: true, pointsAdjusted: null };
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') return { canceled: false };
+      throw err;
+    }
+  };
+
+  if (!moveFor) return orderOnly();
+
+  try {
+    await docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Update: orderUpdate(true) },
+          {
+            Update: {
+              TableName: CUSTOMERS_TABLE,
+              Key: { customerId: moveFor },
+              UpdateExpression: 'ADD rewards :net',
+              // Like addRewardsPoints: never resurrect a deleted account's row.
+              ConditionExpression: 'attribute_exists(customerId)',
+              ExpressionAttributeValues: { ':net': spent - earned },
+            },
+          },
+        ],
+      })
+    );
+    return { canceled: true, pointsAdjusted: { earned, spent } };
+  } catch (err) {
+    if (err.name !== 'TransactionCanceledException') throw err;
+    const [orderReason, customerReason] = err.CancellationReasons ?? [];
+    if (orderReason?.Code === 'ConditionalCheckFailed') return { canceled: false };
+    // The customer deleted their account, so there's no balance to adjust —
+    // that must not stop staff canceling the order.
+    if (customerReason?.Code === 'ConditionalCheckFailed') return orderOnly();
+    throw err;
+  }
 }
 
 export async function getOrderById(orderId) {

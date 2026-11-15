@@ -1,0 +1,41 @@
+cozydoughcookies.com {
+	encode zstd gzip
+
+	# QUIET LAUNCH — asks search engines not to index the site. Delete this
+	# header (and `docker compose restart caddy`) when the site goes public.
+	header X-Robots-Tag "noindex, nofollow"
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	# Same job as frontend/nginx.conf and the Vite dev proxy: the frontend calls
+	# relative /api/... URLs, so no code differs between local and production.
+	handle /api/* {
+		reverse_proxy backend:4000
+	}
+
+	# Vite fingerprints everything under /assets, so it can be cached forever.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else is the React app: real files are served as-is, and any
+	# other path (/menu, /sign-in, ...) falls back to index.html for the
+	# client-side router. no-cache so a new deploy shows up on the next visit.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# One canonical address, so Stripe/Apple Pay domain registration and
+# sign-in cookies/storage only ever deal with the apex domain.
+www.cozydoughcookies.com {
+	redir https://cozydoughcookies.com{uri} permanent
+}

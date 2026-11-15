@@ -1,0 +1,32 @@
+{
+  "PoolName": "cozy-dough-pool-prod",
+  "UserPoolTier": "ESSENTIALS",
+  "DeletionProtection": "ACTIVE",
+  "UsernameAttributes": ["email"],
+  "AutoVerifiedAttributes": ["email"],
+  "UsernameConfiguration": { "CaseSensitive": false },
+  "MfaConfiguration": "OFF",
+  "Policies": {
+    "PasswordPolicy": {
+      "MinimumLength": 8,
+      "RequireUppercase": true,
+      "RequireLowercase": true,
+      "RequireNumbers": true,
+      "RequireSymbols": true,
+      "TemporaryPasswordValidityDays": 7
+    },
+    "SignInPolicy": { "AllowedFirstAuthFactors": ["PASSWORD"] }
+  },
+  "AccountRecoverySetting": {
+    "RecoveryMechanisms": [{ "Priority": 1, "Name": "verified_email" }]
+  },
+  "AdminCreateUserConfig": { "AllowAdminCreateUserOnly": false },
+  "EmailConfiguration": { "EmailSendingAccount": "COGNITO_DEFAULT" },
+  "VerificationMessageTemplate": { "DefaultEmailOption": "CONFIRM_WITH_CODE" },
+  "Schema": [
+    { "Name": "email", "AttributeDataType": "String", "Required": true, "Mutable": true, "StringAttributeConstraints": { "MinLength": "0", "MaxLength": "2048" } },
+    { "Name": "given_name", "AttributeDataType": "String", "Required": true, "Mutable": true, "StringAttributeConstraints": { "MinLength": "0", "MaxLength": "2048" } },
+    { "Name": "family_name", "AttributeDataType": "String", "Required": true, "Mutable": true, "StringAttributeConstraints": { "MinLength": "0", "MaxLength": "2048" } }
+  ],
+  "UserPoolTags": { "Project": "cozy-dough", "Env": "prod" }
+}

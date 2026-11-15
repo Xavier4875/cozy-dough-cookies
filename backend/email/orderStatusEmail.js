@@ -6,6 +6,7 @@ import {
   buildOrderTableHtml,
   buildOrderTableText,
   escapeHtml,
+  formatMoney,
 } from './format.js';
 
 // Fulfillment info line(s) for an order-status email — same shape whether
@@ -82,14 +83,28 @@ const STATUS_MESSAGES = {
 
 // Returns null for a transition with no customer-facing message (see above)
 // — callers should skip sending entirely rather than mail an empty body.
-// `order` supplies the fulfillment details and item/total breakdown.
-export function buildStatusChangeEmail({ contact, method, status, order }) {
+// `order` supplies the fulfillment details and item/total breakdown. `refund`
+// (a canceled order whose payment was refunded) adds a line saying so, with
+// the amount and when to expect it. `pointsReturned` (reward points the order
+// had spent, given back on cancel) adds a line saying so — only that side is
+// worth telling the customer; points taken back are just the earnings of an
+// order that no longer exists.
+export function buildStatusChangeEmail({ contact, method, status, order, refund, pointsReturned = 0 }) {
   const message = STATUS_MESSAGES[method]?.[status];
   if (!message) return null;
+  const refundLine = refund
+    ? `A refund of ${formatMoney(refund.amount / 100)} has been issued to your original payment method. It can take 5-10 business days to appear on your statement.`
+    : null;
+  const pointsLine =
+    pointsReturned > 0
+      ? `The ${pointsReturned} reward point${pointsReturned === 1 ? '' : 's'} you used on this order ${pointsReturned === 1 ? 'has' : 'have'} been returned to your account.`
+      : null;
 
   const textLines = [
     `Hi ${contact.firstName},`,
     message,
+    ...(refundLine ? [refundLine] : []),
+    ...(pointsLine ? [pointsLine] : []),
     ...fulfillmentLinesText(order.fulfillment, status),
     ...buildOrderTableText(order),
   ];
@@ -97,6 +112,8 @@ export function buildStatusChangeEmail({ contact, method, status, order }) {
   const htmlParagraphs = [
     `Hi ${contact.firstName},`,
     escapeHtml(message),
+    ...(refundLine ? [escapeHtml(refundLine)] : []),
+    ...(pointsLine ? [escapeHtml(pointsLine)] : []),
     fulfillmentParagraphHtml(order.fulfillment, status),
   ];
 

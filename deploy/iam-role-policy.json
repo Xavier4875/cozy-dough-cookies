@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AppTablesProdOnly",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughCustomers-Prod",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughCustomers-Prod/index/*",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughEmailVerifications-Prod",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughEmailVerifications-Prod/index/*",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughExternalSales-Prod",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughExternalSales-Prod/index/*",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughOrders-Prod",
+        "arn:aws:dynamodb:us-east-2:099437942433:table/CozyDoughOrders-Prod/index/*"
+      ]
+    },
+    {
+      "Sid": "SendEmail",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": "arn:aws:ses:us-east-2:099437942433:identity/*"
+    },
+    {
+      "Sid": "EnrollCustomersInGroupProdPoolOnly",
+      "Effect": "Allow",
+      "Action": "cognito-idp:AdminAddUserToGroup",
+      "Resource": "arn:aws:cognito-idp:us-east-2:099437942433:userpool/us-east-2_BjG4UZL7M"
+    },
+    {
+      "Sid": "ReadDeployBundle",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::cozy-dough-frontend/deploy/*"
+    }
+  ]
+}

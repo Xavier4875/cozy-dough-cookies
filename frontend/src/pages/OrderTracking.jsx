@@ -389,8 +389,43 @@ function OrderTimeline({ order }) {
           <span>{formatOrderDate(order.canceledAt)}</span>
         </li>
       )}
+      {order.cancelReason === 'checkout_failed' && (
+        <li>
+          <span>Reason</span>
+          <span>Checkout failed after payment</span>
+        </li>
+      )}
+      {order.refund && (
+        <li>
+          <span>Refunded</span>
+          <span>${(order.refund.amount / 100).toFixed(2)}</span>
+        </li>
+      )}
+      {order.refundSkipped && (
+        <li>
+          <span>Refund</span>
+          <span>None issued</span>
+        </li>
+      )}
+      {describePointsAdjustment(order.pointsAdjustment) && (
+        <li>
+          <span>Reward points</span>
+          <span>{describePointsAdjustment(order.pointsAdjustment)}</span>
+        </li>
+      )}
     </ul>
   );
+}
+
+// "12 taken back, 100 returned" — what canceling an order did to the
+// customer's reward points (the order's pointsAdjustment), or '' if nothing
+// moved.
+function describePointsAdjustment(adjustment) {
+  if (!adjustment) return '';
+  const parts = [];
+  if (adjustment.earnedTakenBack > 0) parts.push(`${adjustment.earnedTakenBack} taken back`);
+  if (adjustment.spentReturned > 0) parts.push(`${adjustment.spentReturned} returned`);
+  return parts.join(', ');
 }
 
 const CANCEL_PHRASE = 'cancel order';
@@ -399,10 +434,36 @@ const CANCEL_PHRASE = 'cancel order';
 // directly on DeleteAccountModal.jsx's warn -> type-to-confirm shape: a
 // stray click on the red "✕" only ever reaches the warning step; canceling
 // for real requires deliberately typing the phrase.
-function CancelOrderModal({ isSaving, error, onConfirm, onClose }) {
+//
+// Canceling refunds the customer's card by default. The checkbox on the
+// typing step lets staff cancel *without* a refund instead — for an order
+// that's forfeited under the pickup policy — so that choice is made
+// deliberately, on the same screen where the cancellation is confirmed. It
+// only appears for an order that was actually paid for.
+function CancelOrderModal({ order, isSaving, error, onConfirm, onClose }) {
   const [step, setStep] = useState('warn');
   const [typedPhrase, setTypedPhrase] = useState('');
   const [formError, setFormError] = useState('');
+  const [refund, setRefund] = useState(true);
+  const canRefund = Boolean(order?.payment?.paymentIntentId) && order.total > 0;
+  const refundAmount = canRefund ? `$${order.total.toFixed(2)}` : '';
+  // Reward points follow the refund: canceling with a refund — or an order that
+  // never cost money (paid in points, so there's nothing to refund) — takes
+  // back the points it earned and returns the points it spent. Canceling
+  // without a refund leaves points alone. Guests have no points account.
+  const pointsEarned = order?.customerId ? order.pointsEarned || 0 : 0;
+  const pointsSpent = order?.customerId ? order.pointsSpent || 0 : 0;
+  const pointsMove = pointsEarned > 0 || pointsSpent > 0;
+  const pointsNote = pointsMove
+    ? !canRefund || refund
+      ? `Reward points: ${[
+          pointsEarned > 0 && `${pointsEarned} the customer earned will be taken back`,
+          pointsSpent > 0 && `${pointsSpent} they spent will be returned`,
+        ]
+          .filter(Boolean)
+          .join(' and ')}.`
+      : 'Reward points will stay as they are.'
+    : '';
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -411,7 +472,9 @@ function CancelOrderModal({ isSaving, error, onConfirm, onClose }) {
       return;
     }
     setFormError('');
-    onConfirm();
+    // An order with nothing to refund still asks for the normal (refunding)
+    // cancel — the server finds nothing to refund and just returns any points.
+    onConfirm({ refund: canRefund ? refund : true });
   }
 
   return (
@@ -420,7 +483,10 @@ function CancelOrderModal({ isSaving, error, onConfirm, onClose }) {
         <h2>Cancel Order</h2>
         {step === 'warn' ? (
           <>
-            <p>Are you sure you&apos;d like to cancel this order? This can&apos;t be undone.</p>
+            <p>
+              Are you sure you&apos;d like to cancel this order? This can&apos;t be undone.
+              {canRefund && ` The customer will be refunded ${refundAmount} unless you change that on the next step.`}
+            </p>
             <div className="cancel-order-actions">
               <button type="button" className="cancel-order-cancel-btn" onClick={onClose}>
                 No
@@ -432,8 +498,29 @@ function CancelOrderModal({ isSaving, error, onConfirm, onClose }) {
           </>
         ) : (
           <form onSubmit={handleSubmit}>
+            {canRefund && (
+              <>
+                <label className="cancel-order-refund">
+                  <input
+                    type="checkbox"
+                    checked={refund}
+                    onChange={(e) => setRefund(e.target.checked)}
+                    disabled={isSaving}
+                  />
+                  <span>Refund {refundAmount} to the customer&apos;s card</span>
+                </label>
+                {!refund && (
+                  <p className="cancel-order-refund-note">
+                    The order will be canceled and the customer will <strong>not</strong> be refunded.
+                    Use this for an order forfeited under the pickup policy.
+                  </p>
+                )}
+              </>
+            )}
+            {pointsNote && <p className="cancel-order-points-note">{pointsNote}</p>}
             <p>
-              Type <strong>{CANCEL_PHRASE}</strong> below and press Submit to cancel this order.
+              Type <strong>{CANCEL_PHRASE}</strong> below and press Submit to cancel this order
+              {canRefund ? (refund ? ' and refund it' : ' without a refund') : ''}.
             </p>
             <input
               type="text"
@@ -448,7 +535,7 @@ function CancelOrderModal({ isSaving, error, onConfirm, onClose }) {
                 Close
               </button>
               <button type="submit" className="cancel-order-confirm-btn" disabled={isSaving}>
-                {isSaving ? 'Canceling…' : 'Submit'}
+                {isSaving ? (refund && canRefund ? 'Refunding…' : 'Canceling…') : 'Submit'}
               </button>
             </div>
           </form>
@@ -886,15 +973,19 @@ function OrderTracking() {
   // The other terminal action — stopping an order entirely, reachable from
   // any active stage (not gated to 'ready' the way handleComplete is). Same
   // shape as handleComplete: remove from Active Orders immediately, refresh
-  // the Recent Orders cache next time that tab opens.
-  async function handleCancelOrder(orderId) {
+  // the Recent Orders cache next time that tab opens. `refund` says whether
+  // the customer's card is refunded; the server refunds first and, if Stripe
+  // refuses, leaves the order active and answers with the reason — which the
+  // dialog shows, so the order stays open for a retry.
+  async function handleCancelOrder(orderId, { refund }) {
     setSavingOrderId(orderId);
     setErrorsByOrderId((prev) => ({ ...prev, [orderId]: '' }));
     try {
       const token = await getIdToken();
       const res = await fetch(`/api/orders/${orderId}/cancel`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
+        body: JSON.stringify({ refund }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1009,9 +1100,10 @@ function OrderTracking() {
 
       {cancelingOrderId && (
         <CancelOrderModal
+          order={activeOrders.find((o) => o.orderId === cancelingOrderId)}
           isSaving={savingOrderId === cancelingOrderId}
           error={errorsByOrderId[cancelingOrderId]}
-          onConfirm={() => handleCancelOrder(cancelingOrderId)}
+          onConfirm={(options) => handleCancelOrder(cancelingOrderId, options)}
           onClose={() => setCancelingOrderId(null)}
         />
       )}

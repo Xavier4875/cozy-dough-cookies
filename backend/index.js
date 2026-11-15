@@ -25,6 +25,10 @@ import {
   scanAllOrders,
   updateOrderFulfillment,
   setOrderStatus,
+  cancelOrderRecord,
+  updateOrderPoints,
+  deterministicOrderId,
+  DuplicateOrderError,
 } from './db/ordersRepo.js';
 import {
   upsertCustomer,
@@ -45,18 +49,22 @@ import { optionalAuth, requireAuth, requireActiveCustomer, requireStaff } from '
 import { installAsyncErrorHandling } from './middleware/asyncHandler.js';
 import { addToCustomerGroup } from './auth/cognitoGroup.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
+import { allocateEarnedPoints, allocateSpentPoints, pointsToReverse } from './rewards/points.js';
 import { validateAddress } from './shipping/usps.js';
 import { enqueue as enqueueAddressRetry } from './shipping/retryQueue.js';
 import { enqueue as enqueueEarnRetry } from './rewards/earnRetryQueue.js';
 import { checkIpRateLimit } from './shipping/ipRateLimit.js';
 import { checkEmailSendRateLimit } from './email/rateLimit.js';
-import { sendVerificationCodeEmail, sendEmail } from './email/ses.js';
+import { sendVerificationCodeEmail, sendEmail, staffRecipients } from './email/ses.js';
 import { buildReceiptEmail } from './email/receipt.js';
 import { buildPickupTimeEmail, buildStatusChangeEmail } from './email/orderStatusEmail.js';
 import { buildStaffNewOrderEmail } from './email/staffNotification.js';
 import { enqueue as enqueueEmailRetry } from './email/emailRetryQueue.js';
-import { getStripeClient } from './stripe/client.js';
+import { getStripeClient, isLiveMode } from './stripe/client.js';
 import { summarizePaymentMethod } from './stripe/paymentMethod.js';
+import { refundOrderPayment, refundWholePayment } from './stripe/refunds.js';
+import { handleStripeEvent } from './stripe/webhookEvents.js';
+import { notifyStaff } from './email/staffAlert.js';
 import {
   EMAIL_RE,
   PICKUP_DATE_RE,
@@ -188,6 +196,15 @@ function validateFulfillment(fulfillment) {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// How many reverse proxies sit in front of this server (0 when it's reached
+// directly, as in local dev). req.ip — which the per-IP rate limits below key
+// on — is the socket's address unless Express is told to trust the proxy's
+// X-Forwarded-For header, and behind a proxy that address is the proxy itself:
+// every visitor would share one rate-limit bucket. Only raise this when the
+// backend port is reachable solely through the proxy (otherwise a client could
+// spoof the header); the production compose file sets it to 1 for Caddy.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 0);
 
 // Must run before any app.get/post/put/patch/delete calls below — it
 // replaces those methods so every route registered afterward automatically
@@ -559,16 +576,68 @@ function computeGrandTotal(cart, fulfillment) {
 // already actually charged the customer — unlike every rejection earlier in
 // the handler (which happen before payment is ever verified), just
 // returning an error here would leave them charged with no order to show
-// for it. Refunding first is what keeps that from happening; the refund
-// call itself is best-effort logged (not re-thrown) since the customer-
-// facing error is the same either way, and a failed refund here still
-// leaves the finalized-metadata guard in place against reusing the payment.
-async function refundAndFail(res, paymentIntentId, status, message) {
+// for it. Refunding first is what keeps that from happening. The customer-
+// facing error is the same whether or not the refund worked, so a failed
+// refund isn't re-thrown — but it does alert staff straight away, since it
+// leaves a customer out of pocket with nothing created for them. A failed
+// refund also leaves the finalized-metadata guard in place against reusing
+// the payment. Returns the refund record, or null if it didn't go through.
+async function refundPayment(paymentIntentId) {
   try {
-    await getStripeClient().refunds.create({ payment_intent: paymentIntentId });
+    return await refundWholePayment(paymentIntentId);
   } catch (err) {
     console.error(`Failed to refund payment ${paymentIntentId} after a failed checkout:`, err);
+    await notifyStaff({
+      subject: 'A checkout failed after the customer was charged, and the automatic refund failed',
+      lines: [
+        `Payment ${paymentIntentId} succeeded, then the checkout couldn't be completed, and refunding it automatically also failed (${err.message}).`,
+        `The customer has been charged and has no order. Refund it by hand: https://dashboard.stripe.com/${isLiveMode() ? '' : 'test/'}payments/${paymentIntentId}`,
+      ],
+    });
+    return null;
   }
+}
+
+// Orders that were already saved when a later step of the same checkout
+// failed (the payment is about to be refunded in full, so none of them can
+// stand). Marked canceled rather than deleted, so staff never bake for a
+// refunded order but the history of what happened stays. Best-effort per
+// order: one failing to update must not stop the rest.
+async function cancelPersistedOrders(orders, refund) {
+  const canceledAt = new Date().toISOString();
+  for (const order of orders) {
+    try {
+      await setOrderStatus(order.orderId, {
+        status: 'canceled',
+        canceledAt,
+        cancelReason: 'checkout_failed',
+        ...(refund && { refund }),
+        // The checkout failed before any points were spent or awarded, so
+        // these orders have none to give back.
+        ...(order.customerId && { pointsEarned: 0, pointsSpent: 0 }),
+      });
+    } catch (err) {
+      console.error(`Couldn't cancel order ${order.orderId} after a failed checkout:`, err);
+    }
+  }
+}
+
+// Best-effort correction of the points orders recorded for themselves (see
+// updateOrderPoints): one failing to update must not stop the rest, or fail
+// a checkout that has otherwise succeeded.
+async function clearOrderPoints(orders, fields) {
+  await Promise.all(
+    orders.map((order) =>
+      updateOrderPoints(order.orderId, fields).catch((err) =>
+        console.error(`Couldn't correct the points recorded on order ${order.orderId}:`, err)
+      )
+    )
+  );
+}
+
+async function refundAndFail(res, paymentIntentId, status, message, { savedOrders = [] } = {}) {
+  const refund = await refundPayment(paymentIntentId);
+  await cancelPersistedOrders(savedOrders, refund);
   res.status(status).json({ error: message });
 }
 
@@ -582,7 +651,7 @@ app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) =
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
-  const { cart, fulfillment } = resolved;
+  const { contact, cart, fulfillment } = resolved;
   const amount = Math.round(computeGrandTotal(cart, fulfillment) * 100);
   if (amount <= 0) {
     return res.status(400).json({ error: 'Nothing to charge.' });
@@ -592,6 +661,9 @@ app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) =
     const paymentIntent = await getStripeClient().paymentIntents.create({
       amount,
       currency: 'usd',
+      // Shown next to the payment in the Stripe Dashboard, so a charge with no
+      // matching order (or a dispute) can be traced back to a customer.
+      metadata: { contactEmail: contact.email },
       // Explicit, not automatic_payment_methods — Apple Pay/Google Pay are
       // surfaced by Stripe.js's Payment Element as wallet UI on top of the
       // 'card' type (detected client-side by device/browser support), not
@@ -612,15 +684,14 @@ app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) =
 });
 
 // Stripe's raw webhook payload, verified by signature — the authoritative,
-// server-to-server confirmation that a payment actually succeeded,
-// independent of whatever the browser's confirmPayment() call reported
-// (which a closed tab or dropped connection could lose entirely). For now
-// this only guards against checkout never being finalized after a real
-// successful charge (e.g. the tab closing between payment and the finalize
-// call below) — logging it clearly rather than leaving an already-charged
-// payment with no order behind it silently unnoticed. Needs req.rawBody
-// (see the express.json() verify hook above), not the parsed req.body —
-// the signature is computed over the exact original bytes.
+// server-to-server word on what happened to money, independent of whatever
+// the browser reported (a closed tab or dropped connection could lose that
+// entirely). What each event leads to — alerting staff about a customer
+// charged with no order, a chargeback, or a refund that failed — lives in
+// stripe/webhookEvents.js, along with the list of events the endpoint must be
+// subscribed to. Needs req.rawBody (see the express.json() verify hook
+// above), not the parsed req.body — the signature is computed over the exact
+// original bytes.
 app.post('/api/stripe/webhook', async (req, res) => {
   const signature = req.headers['stripe-signature'];
   let event;
@@ -631,15 +702,13 @@ app.post('/api/stripe/webhook', async (req, res) => {
     return res.status(400).json({ error: 'Invalid signature.' });
   }
 
-  if (event.type === 'payment_intent.succeeded') {
-    const paymentIntent = event.data.object;
-    if (paymentIntent.metadata?.finalized !== 'true') {
-      console.error(
-        `Stripe payment ${paymentIntent.id} succeeded but was never finalized into an order — check manually.`
-      );
-    }
+  try {
+    await handleStripeEvent(event);
+  } catch (err) {
+    // A non-2xx answer makes Stripe send the event again later.
+    console.error(`Failed to handle Stripe event ${event.id} (${event.type}):`, err);
+    return res.status(500).json({ error: 'Webhook handling failed.' });
   }
-
   res.json({ received: true });
 });
 
@@ -671,7 +740,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
-  const { contact, fulfillment, cart, totalPointsRequired } = resolved;
+  const { contact, fulfillment, cart, totalPointsRequired, resolvedRedemptions } = resolved;
 
   // Every checkout must be backed by a real, already-succeeded Stripe
   // payment for the exact amount this request computes — never trust a
@@ -705,9 +774,12 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   if (paymentIntent.metadata?.finalized === 'true') {
     return res.status(400).json({ error: 'This payment has already been used for an order.' });
   }
-  // Marked immediately after verifying, before any persistence — the
-  // narrowest possible window for a double-submitted finalize request to
-  // slip past the check above and create duplicate orders from one payment.
+  // Marked immediately after verifying, before anything else happens. This is
+  // what rejects a *later* attempt to reuse the payment — including one whose
+  // checkout failed and was refunded (the payment still reads "succeeded"
+  // afterwards). Two requests arriving at the same moment can both get past the
+  // check above before either marks it, so this alone isn't enough; the
+  // exactly-once guarantee comes from createOrder below.
   await getStripeClient().paymentIntents.update(paymentIntentId, { metadata: { finalized: 'true' } });
 
   // Runs after payment is confirmed (not before) so a request that was
@@ -744,37 +816,29 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     // no retry, since there's nothing to retry against.
   }
 
-  // Spent after payment is confirmed, not before — so a failure here can't
-  // just reject the whole request with nothing created, since the customer
-  // has already been genuinely charged. See the redemptionSpendFailed
-  // handling below: the order still gets created regardless (the reward item
-  // was already included in what was charged), the points just can't be
-  // deducted.
-  let balanceAfterSpend = null;
-  let redemptionSpendFailed = false;
-  if (totalPointsRequired > 0) {
-    try {
-      balanceAfterSpend = await redeemRewardsPoints(req.user.customerId, totalPointsRequired);
-      if (balanceAfterSpend === null) redemptionSpendFailed = true;
-    } catch (err) {
-      console.error('Failed to redeem rewards points after payment succeeded:', err);
-      redemptionSpendFailed = true;
-    }
-    if (redemptionSpendFailed) {
-      console.error(
-        `Order for ${contact.email} proceeding without deducting ${totalPointsRequired} points — payment ${paymentIntentId} already succeeded.`
-      );
-    }
-  }
-
+  // Saving the orders is also what makes this payment exactly-once. Their ids
+  // are derived from the payment (deterministicOrderId) and createOrder won't
+  // overwrite an existing one, so if two finalize requests for the same
+  // payment race past the checks above (a double-click, a retry), DynamoDB
+  // lets only one of them write — the other fails on the very first order.
+  // That loser stops right there: the payment is the winner's now, so it must
+  // not refund anything or spend any reward points. This runs before reward
+  // points are spent for the same reason, so a duplicate can never deduct
+  // them twice.
+  const paymentMethod = summarizePaymentMethod(paymentIntent);
+  // Each order notes its own share of the points this checkout earns and
+  // spends, so canceling it later can move exactly that share back (see
+  // rewards/points.js). These are the amounts the checkout intends to move —
+  // written with the order, and corrected below if the points then fail to.
+  const earnedShares = req.user ? allocateEarnedPoints(cart.orders.map((o) => o.total), cart.grandTotal) : [];
+  const spentShares = req.user ? allocateSpentPoints(resolvedRedemptions, cart.orders.length) : [];
+  const persistedOrders = [];
   try {
-    const paymentMethod = summarizePaymentMethod(paymentIntent);
-    const persistedOrders = [];
-    for (const order of cart.orders) {
+    for (const [index, order] of cart.orders.entries()) {
       const { items, total: subtotal } = order.toJSON();
       const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
       const record = {
-        orderId: randomUUID(),
+        orderId: deterministicOrderId(paymentIntentId, index),
         status: 'placed',
         items,
         subtotal,
@@ -791,19 +855,70 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
           ...(paymentMethod && { method: paymentMethod }),
         },
         createdAt: new Date().toISOString(),
-        ...(req.user && { customerId: req.user.customerId }),
+        ...(req.user && {
+          customerId: req.user.customerId,
+          pointsEarned: earnedShares[index],
+          pointsSpent: spentShares[index],
+        }),
       };
       persistedOrders.push(await createOrder(record));
     }
-
-    if (addressNeedsRetry) {
-      enqueueAddressRetry(persistedOrders.map((o) => o.orderId), fulfillment.shippingAddress);
+  } catch (err) {
+    if (err instanceof DuplicateOrderError && persistedOrders.length === 0) {
+      return res.status(409).json({ error: 'This payment has already been used for an order.' });
     }
+    console.error('Failed to persist order:', err);
+    return refundAndFail(res, paymentIntentId, 500, 'Failed to save your order. Please try again.', {
+      savedOrders: persistedOrders,
+    });
+  }
 
-    // A receipt is a nice-to-have, not part of the transaction itself — a
-    // failed send (or SES being unconfigured entirely, e.g. local dev)
-    // must never fail an otherwise-successful checkout. Built once so a
-    // retry re-sends the exact same content rather than re-deriving it.
+  // From here the orders exist and the customer has paid for them, so nothing
+  // below may refund the payment or fail the request. Every step is a
+  // follow-up that logs — and where it matters, retries — its own failure.
+
+  // Lets someone looking at this payment in the Stripe Dashboard find its orders.
+  getStripeClient()
+    .paymentIntents.update(paymentIntentId, {
+      metadata: { orderIds: persistedOrders.map((o) => o.orderId).join(',').slice(0, 500) },
+    })
+    .catch((err) => console.error(`Couldn't tag payment ${paymentIntentId} with its order ids:`, err));
+
+  if (addressNeedsRetry) {
+    enqueueAddressRetry(persistedOrders.map((o) => o.orderId), fulfillment.shippingAddress);
+  }
+
+  // Spent only now, after the orders are safely saved — so a failure here
+  // can't just reject the request with nothing created (the customer has
+  // already been genuinely charged), and a failed save above never leaves
+  // points deducted for an order that doesn't exist. See redemptionSpendFailed
+  // below: the order stands regardless (the reward item was already included
+  // in what was charged), the points just can't be deducted.
+  let balanceAfterSpend = null;
+  let redemptionSpendFailed = false;
+  if (totalPointsRequired > 0) {
+    try {
+      balanceAfterSpend = await redeemRewardsPoints(req.user.customerId, totalPointsRequired);
+      if (balanceAfterSpend === null) redemptionSpendFailed = true;
+    } catch (err) {
+      console.error('Failed to redeem rewards points after payment succeeded:', err);
+      redemptionSpendFailed = true;
+    }
+    if (redemptionSpendFailed) {
+      console.error(
+        `Order for ${contact.email} proceeding without deducting ${totalPointsRequired} points — payment ${paymentIntentId} already succeeded.`
+      );
+      // Those points were never taken, so canceling these orders must not give
+      // them back.
+      await clearOrderPoints(persistedOrders, { pointsSpent: 0 });
+    }
+  }
+
+  // A receipt is a nice-to-have, not part of the transaction itself — a
+  // failed send (or SES being unconfigured entirely, e.g. local dev)
+  // must never fail an otherwise-successful checkout. Built once so a
+  // retry re-sends the exact same content rather than re-deriving it.
+  try {
     const receipt = buildReceiptEmail({ contact, fulfillment, orders: persistedOrders });
     try {
       await sendEmail(contact.email, receipt.subject, receipt.text, receipt.html);
@@ -814,51 +929,56 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
 
     // Same best-effort treatment for staff's new-order notification — a
     // failed/unconfigured send here must not fail the checkout either.
-    if (process.env.STAFF_NOTIFICATION_EMAIL) {
+    const staffTo = staffRecipients();
+    if (staffTo.length > 0) {
       const staffEmail = buildStaffNewOrderEmail({ contact, fulfillment, orders: persistedOrders });
       try {
-        await sendEmail(process.env.STAFF_NOTIFICATION_EMAIL, staffEmail.subject, staffEmail.text, staffEmail.html);
+        await sendEmail(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
       } catch (err) {
         console.error('Failed to send staff new-order notification:', err);
-        enqueueEmailRetry(process.env.STAFF_NOTIFICATION_EMAIL, staffEmail.subject, staffEmail.text, staffEmail.html);
+        enqueueEmailRetry(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
       }
     }
-
-    // Signed-in customers earn 1 point per $1 spent. Guests earn nothing —
-    // they have no Customers row at all. If the points update fails after
-    // the orders already saved, the order still succeeds: points are a perk,
-    // the order is the thing that must not fail. (Free reward items already
-    // contribute $0 to grandTotal, so earning needs no adjustment for them.)
-    // A failure here queues an automatic retry (earnRetryQueue.js) rather
-    // than just being logged and dropped — same "don't block the order, but
-    // don't silently lose the side effect either" shape as the shipping
-    // address retry queue above.
-    let rewards;
-    if (req.user) {
-      rewards = {};
-      if (totalPointsRequired > 0 && !redemptionSpendFailed) rewards.spent = totalPointsRequired;
-      const pointsEarned = Math.round(cart.grandTotal);
-      try {
-        const balance = await addRewardsPoints(req.user.customerId, pointsEarned);
-        rewards.earned = pointsEarned;
-        rewards.balance = balance;
-      } catch (err) {
-        console.error('Failed to award rewards points:', err);
-        if (balanceAfterSpend !== null) rewards.balance = balanceAfterSpend;
-        enqueueEarnRetry(req.user.customerId, pointsEarned);
-      }
-    }
-
-    res.json({
-      orders: persistedOrders,
-      grandTotal: cart.grandTotal,
-      ...(rewards && { rewards }),
-      message: 'Order placed!',
-    });
   } catch (err) {
-    console.error('Failed to persist order:', err);
-    return refundAndFail(res, paymentIntentId, 500, 'Failed to save your order. Please try again.');
+    console.error("Couldn't build the order emails:", err);
   }
+
+  // Signed-in customers earn 1 point per $1 spent. Guests earn nothing —
+  // they have no Customers row at all. If the points update fails after
+  // the orders already saved, the order still succeeds: points are a perk,
+  // the order is the thing that must not fail. (Free reward items already
+  // contribute $0 to grandTotal, so earning needs no adjustment for them.)
+  // A failure here queues an automatic retry (earnRetryQueue.js) rather
+  // than just being logged and dropped — same "don't block the order, but
+  // don't silently lose the side effect either" shape as the shipping
+  // address retry queue above.
+  let rewards;
+  if (req.user) {
+    rewards = {};
+    if (totalPointsRequired > 0 && !redemptionSpendFailed) rewards.spent = totalPointsRequired;
+    const pointsEarned = Math.round(cart.grandTotal);
+    try {
+      const balance = await addRewardsPoints(req.user.customerId, pointsEarned);
+      rewards.earned = pointsEarned;
+      rewards.balance = balance;
+    } catch (err) {
+      console.error('Failed to award rewards points:', err);
+      if (balanceAfterSpend !== null) rewards.balance = balanceAfterSpend;
+      // If awarding ultimately gives up, the orders must stop claiming points
+      // they never earned, or canceling one would take back points that were
+      // never added.
+      enqueueEarnRetry(req.user.customerId, pointsEarned, () =>
+        clearOrderPoints(persistedOrders, { pointsEarned: 0 })
+      );
+    }
+  }
+
+  res.json({
+    orders: persistedOrders,
+    grandTotal: cart.grandTotal,
+    ...(rewards && { rewards }),
+    message: 'Order placed!',
+  });
 });
 
 // Returns the signed-in customer's own order history, newest first.
@@ -1356,6 +1476,20 @@ app.post(
 // canceled, set-status's guard above refuses to move it anywhere else.
 // Existing confirmedAt/readyAt are left untouched — "this was confirmed,
 // then canceled" is real history worth keeping, not something to erase.
+//
+// Canceling gives the customer their money back by default: the order's own
+// total (shipping included) is refunded to the card it was paid with — a
+// partial refund of the charge, since one checkout can hold several orders
+// on a single charge. Staff can cancel *without* a refund by sending
+// { refund: false }, for an order that's forfeited under the pickup policy.
+// The refund goes first: if Stripe refuses it, the order is left exactly as
+// it was and staff are told why, so an order is never shown as canceled
+// while the customer is still charged for it. What happened is saved on the
+// order (refund, or refundSkipped).
+//
+// Reward points follow the refund: a canceled-with-refund order has the points
+// it earned taken back and the points it spent on redeemed rewards returned
+// (pointsAdjustment on the order); a no-refund cancel leaves points alone.
 app.post(
   '/api/orders/:id/cancel',
   requireAuth,
@@ -1370,10 +1504,46 @@ app.post(
       if (order.status === 'completed' || order.status === 'canceled') {
         return res.status(400).json({ error: 'This order can no longer be canceled.' });
       }
-      const canceledAt = new Date().toISOString();
-      await setOrderStatus(req.params.id, { status: 'canceled', canceledAt });
 
-      const email = buildStatusChangeEmail({ contact: order.contact, method: order.fulfillment.method, status: 'canceled', order });
+      const refundRequested = req.body?.refund !== false;
+      let refund = null;
+      if (refundRequested) {
+        try {
+          const result = await refundOrderPayment(order);
+          if (result.refunded) refund = result.refund;
+        } catch (err) {
+          console.error(`Failed to refund order ${order.orderId} while canceling it:`, err);
+          return res.status(502).json({
+            error: `The payment couldn't be refunded (${err.message}), so the order was not canceled. Try again, or cancel it without a refund and refund it yourself in Stripe.`,
+          });
+        }
+      }
+      // Only worth recording as a deliberate choice when there was a payment to refund.
+      const refundSkipped = !refundRequested && Boolean(order.payment?.paymentIntentId);
+
+      // Reward points follow the money: when the order is canceled with a
+      // refund (or it cost no money, only points), what it earned is taken back
+      // and what it spent is returned. A forfeited order (no refund) leaves
+      // them alone — the customer paid for it and keeps what they earned.
+      const points = refundRequested ? pointsToReverse(order) : { earned: 0, spent: 0 };
+
+      const canceledAt = new Date().toISOString();
+      // Status and points change in one transaction, so the points move exactly
+      // once even if two cancel requests race.
+      const result = await cancelOrderRecord(order, { canceledAt, refund, refundSkipped, points });
+      if (!result.canceled) {
+        return res.status(400).json({ error: 'This order can no longer be canceled.' });
+      }
+      const { pointsAdjusted } = result;
+
+      const email = buildStatusChangeEmail({
+        contact: order.contact,
+        method: order.fulfillment.method,
+        status: 'canceled',
+        order,
+        refund,
+        pointsReturned: pointsAdjusted?.spent ?? 0,
+      });
       if (email) {
         try {
           await sendEmail(order.contact.email, email.subject, email.text, email.html);
@@ -1383,7 +1553,15 @@ app.post(
         }
       }
 
-      res.json({ status: 'canceled', canceledAt });
+      res.json({
+        status: 'canceled',
+        canceledAt,
+        ...(refund && { refund }),
+        ...(refundSkipped && { refundSkipped: true }),
+        ...(pointsAdjusted && {
+          pointsAdjustment: { earnedTakenBack: pointsAdjusted.earned, spentReturned: pointsAdjusted.spent },
+        }),
+      });
     } catch (err) {
       console.error('Failed to cancel order:', err);
       res.status(500).json({ error: 'Failed to cancel order.' });
