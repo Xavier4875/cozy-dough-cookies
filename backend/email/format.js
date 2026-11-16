@@ -1,7 +1,16 @@
 import { dietaryMarker } from '../models/Cookie.js';
+import { PICKUP_ADDRESS } from '../constants.js';
 
 export function formatMoney(n) {
   return `$${n.toFixed(2)}`;
+}
+
+// The shop's own address, as the one line every customer-facing pickup email
+// carries (receipt, pickup-time confirmation, status updates) — shared so the
+// wording can't drift between them. It belongs in emails only; the app itself
+// never displays it.
+export function pickupAddressLine() {
+  return `Pickup address: ${PICKUP_ADDRESS}`;
 }
 
 // Folds the dietary marker into the same "(sizeLabel)" parenthetical shown

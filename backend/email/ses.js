@@ -14,6 +14,14 @@ export function staffRecipients() {
   return parseAddressList(process.env.STAFF_NOTIFICATION_EMAIL);
 }
 
+// Shown in the inbox as the sender's name, so customers see "Cozy Dough
+// Cookies" rather than a bare address. SES_SENDER_EMAIL may already carry its
+// own name ("Name <addr>"), which is then used untouched.
+const SENDER_NAME = 'Cozy Dough Cookies';
+export function fromHeader(sender) {
+  return sender.includes('<') ? sender : `"${SENDER_NAME}" <${sender}>`;
+}
+
 // `toEmail` is one address or an array of them (one message, several
 // recipients — used for staff emails). While the SES account is in sandbox
 // mode it can only send to addresses that are themselves verified identities;
@@ -31,7 +39,7 @@ export async function sendEmail(toEmail, subject, text, html) {
   const replyTo = parseAddressList(process.env.SES_REPLY_TO_EMAIL);
   await sesClient.send(
     new SendEmailCommand({
-      Source: sender,
+      Source: fromHeader(sender),
       Destination: { ToAddresses: Array.isArray(toEmail) ? toEmail : [toEmail] },
       ...(replyTo.length > 0 && { ReplyToAddresses: replyTo }),
       Message: {

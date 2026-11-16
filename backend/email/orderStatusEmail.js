@@ -1,6 +1,7 @@
 import {
   formatPickupDateTime,
   formatAddressLines,
+  pickupAddressLine,
   wrapEmailHtml,
   paragraphsHtml,
   buildOrderTableHtml,
@@ -13,10 +14,14 @@ import {
 // it's a text array-of-lines or an HTML paragraph string, so both builders
 // below can share it instead of duplicating the pickup/shipping branch.
 // `status` only affects the shipping label: once an order is actually
-// 'completed' it's been delivered, not still "shipping".
+// 'completed' it's been delivered, not still "shipping". A pickup order's
+// emails always carry the shop's pickup address next to the pickup time.
 function fulfillmentLinesText(fulfillment, status) {
   if (fulfillment.method === 'pickup') {
-    return [`Pickup time: ${formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime)}`];
+    return [
+      `Pickup time: ${formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime)}`,
+      pickupAddressLine(),
+    ];
   }
   const label = status === 'completed' ? 'Delivered to:' : 'Shipping to:';
   return [label, ...formatAddressLines(fulfillment.shippingAddress)];
@@ -24,7 +29,8 @@ function fulfillmentLinesText(fulfillment, status) {
 
 function fulfillmentParagraphHtml(fulfillment, status) {
   if (fulfillment.method === 'pickup') {
-    return `Pickup time: ${escapeHtml(formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime))}`;
+    const timeHtml = `Pickup time: ${escapeHtml(formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime))}`;
+    return `${timeHtml}<br>${escapeHtml(pickupAddressLine())}`;
   }
   const label = status === 'completed' ? 'Delivered to:' : 'Shipping to:';
   const addressHtml = formatAddressLines(fulfillment.shippingAddress).map(escapeHtml).join('<br>');
@@ -39,18 +45,19 @@ function fulfillmentParagraphHtml(fulfillment, status) {
 // actually differs from what the order had before this call; `note` is the
 // optional staff note that endpoint already supports; `order` supplies the
 // item/total breakdown (its fulfillment is the pre-update one — pickupDate/
-// pickupTime are passed separately as the new values). Deliberately never
-// mentions PICKUP_ADDRESS — that stays scoped to the receipt email only.
+// pickupTime are passed separately as the new values). Always carries the
+// shop's pickup address, since this is the email that tells them when to come.
 export function buildPickupTimeEmail({ contact, pickupDate, pickupTime, changed, note, order }) {
   const headline = changed
     ? `Your order has been confirmed, but we had to adjust your pickup time. Your new pickup time is ${formatPickupDateTime(pickupDate, pickupTime)}.`
     : `Your order has been confirmed for your requested pickup time: ${formatPickupDateTime(pickupDate, pickupTime)}.`;
+  const addressLine = pickupAddressLine();
 
-  const textLines = [`Hi ${contact.firstName},`, headline];
+  const textLines = [`Hi ${contact.firstName},`, headline, addressLine];
   if (note) textLines.push(`Note from us: ${note}`);
   textLines.push(...buildOrderTableText(order));
 
-  const htmlParagraphs = [`Hi ${contact.firstName},`, escapeHtml(headline)];
+  const htmlParagraphs = [`Hi ${contact.firstName},`, escapeHtml(headline), escapeHtml(addressLine)];
   if (note) htmlParagraphs.push(`Note from us: ${escapeHtml(note)}`);
 
   return {

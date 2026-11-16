@@ -13,9 +13,9 @@ import {
 // as the customer receipt, but framed for staff (who placed it, how to
 // reach them) rather than as a thank-you. Unlike the customer receipt, this
 // one is allowed to reference the customer's own submitted fulfillment
-// details (their requested pickup time, or their shipping address) — that's
-// different from PICKUP_ADDRESS (the shop's own address), which stays
-// scoped to the customer receipt only.
+// details (their requested pickup time, or their shipping address). It leaves
+// out the shop's own pickup address, which only the customer-facing emails
+// carry — staff already know where the shop is.
 export function buildStaffNewOrderEmail({ contact, fulfillment, orders }) {
   const intro = `New order from ${contact.firstName} ${contact.lastName} (${contact.email}).`;
 

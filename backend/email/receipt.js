@@ -1,8 +1,8 @@
-import { PICKUP_ADDRESS } from '../constants.js';
 import {
   formatMoney,
   formatPickupDateTime,
   formatAddressLines,
+  pickupAddressLine,
   wrapEmailHtml,
   paragraphsHtml,
   buildOrderTableHtml,
@@ -22,7 +22,7 @@ export function buildReceiptEmail({ contact, fulfillment, orders }) {
     const pickupLine = `Requested pickup: ${formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime)}`;
     const noteLine =
       "This time is a request, not a confirmation — please wait to hear from us that your order is ready before coming by.";
-    const addressLine = `Pickup address: ${PICKUP_ADDRESS}`;
+    const addressLine = pickupAddressLine();
     textLines.push(pickupLine, noteLine, addressLine);
     headerHtml.push(escapeHtml(pickupLine), escapeHtml(noteLine), escapeHtml(addressLine));
   } else {

@@ -698,7 +698,11 @@ app.post('/api/stripe/webhook', async (req, res) => {
   try {
     event = getStripeClient().webhooks.constructEvent(req.rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('Stripe webhook signature verification failed:', err);
+    // One line, not the whole error object: anyone can POST to this public
+    // URL, and the object dumps ~40 lines including the request's payload and
+    // header. Stripe's message runs on past its first line into boilerplate.
+    const reason = String(err.message).split('\n')[0].trim();
+    console.error(`Stripe webhook signature verification failed (from ${req.ip}): ${reason}`);
     return res.status(400).json({ error: 'Invalid signature.' });
   }
 
