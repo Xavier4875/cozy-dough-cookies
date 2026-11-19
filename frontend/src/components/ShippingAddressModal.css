@@ -11,7 +11,9 @@
 
 .shipping-address-modal {
   width: min(440px, 100%);
+  /* Bounded by the visible area, not just vh — see .pickup-schedule-modal. */
   max-height: 90vh;
+  max-height: min(90vh, 100%);
   overflow-y: auto;
   background: #fffaf3;
   border-radius: 12px;
@@ -62,6 +64,12 @@
   font-weight: 700;
   color: #3d2b1f;
   margin: 1rem 0 0.75rem;
+}
+
+.shipping-address-unverified {
+  color: #b3261e;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
 }
 
 .shipping-address-actions {

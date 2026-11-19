@@ -2,7 +2,6 @@ import { createContext, useEffect, useState } from 'react';
 import { Cart } from '../models/Cart.js';
 import { Order } from '../models/Order.js';
 import { useAuth } from './useAuth.js';
-import { UNITS_PER_SIZE } from '../constants.js';
 
 // Exported so useCart.js (a separate file, kept apart so this file only
 // exports the CartProvider component — mixing a component export with a
@@ -122,20 +121,25 @@ export function CartProvider({ children }) {
     removeCookieFromOrder(activeOrderId, cookieId);
   }
 
-  // Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
-  // Dozen reward's dozens) into a single "Chocolate Chip ×2" entry rather
-  // than listing the same name twice — duplicated from the same logic in
-  // backend/index.js since the two runtimes share no package.
-  function summarizeFlavors(flavors) {
+  // How a redeemed reward's flavors read in the cart: just the name when the
+  // whole reward is one flavor, otherwise the cookie count of each ("6
+  // Chocolate Chip, 6 Snickerdoodle") — duplicated from the same logic in
+  // backend/index.js since the two runtimes share no package. `flavors` has
+  // one entry per portion of the reward; `cookiesPerPortion` is that portion's
+  // size (reward.slotCookies).
+  function summarizeFlavors(flavors, cookiesPerPortion) {
     const counts = new Map();
     for (const flavor of flavors) counts.set(flavor, (counts.get(flavor) || 0) + 1);
-    return [...counts.entries()].map(([flavor, n]) => (n > 1 ? `${flavor} ×${n}` : flavor)).join(', ');
+    if (counts.size === 1) return flavors[0];
+    return [...counts.entries()].map(([flavor, n]) => `${n * cookiesPerPortion} ${flavor}`).join(', ');
   }
 
   // Guarded client-side so the button can't be clicked past the balance, but
   // checkout re-verifies and spends atomically server-side regardless — this
   // check is purely a UX nicety, never the source of truth. `flavors` is one
-  // entry per dozen (length === reward.qty), collected by RewardFlavorModal.
+  // entry per portion of the reward (length === reward.flavorSlots), collected
+  // by RewardFlavorModal: a dozen has two six-cookie portions, two dozen four,
+  // and so on, so a flavor may repeat but never has fewer than six cookies.
   function redeemReward(reward, flavors) {
     if (availableRewardsPoints < reward.points) return;
     addCookieToActiveOrder({
@@ -144,25 +148,20 @@ export function CartProvider({ children }) {
       isReward: true,
       pointsCost: reward.points,
       type: reward.type,
-      flavor: `${reward.label}: ${summarizeFlavors(flavors)}`,
+      flavor: `${reward.label}: ${summarizeFlavors(flavors, reward.slotCookies)}`,
       flavors,
       sizeLabel: reward.sizeLabel,
       price: 0,
-      // Real menu-equivalent value (e.g. Two Dozen Standard = two Full Dozen
-      // Standard prices), not the $0 actually charged — reward.value comes
-      // straight from the catalog endpoint, so it can't drift from
-      // Cookie.TYPES pricing server-side.
-      value: reward.value,
       // Real per-flavor answer, looked up from the same products list the
       // Menu page uses — no new fetch needed, one Cookie already exists per
       // (type, flavor, size) combo.
       is_temperature_controlled: flavors.some(
         (f) => products.find((p) => p.type === reward.type && p.flavor === f)?.is_temperature_controlled
       ),
-      // reward.qty is baked into the reward's identity (e.g. "Three Dozen"
-      // is 3 full_dozen units), not the line-item qty — mirrors the same
-      // fix server-side in backend/index.js's redemption fold-in.
-      physicalCookieUnits: UNITS_PER_SIZE[reward.size] * reward.qty,
+      // The reward's size is baked into its identity (e.g. "Three Dozen" is
+      // 36 cookies), not the line-item qty — mirrors the same fix
+      // server-side in backend/index.js's redemption fold-in.
+      physicalCookieUnits: reward.cookies,
     });
   }
 

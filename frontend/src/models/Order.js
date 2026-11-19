@@ -1,4 +1,9 @@
-import { SHIPPING_MEDIUM_MAX_COOKIES, SHIPPING_FEE_MEDIUM, SHIPPING_FEE_LARGE } from '../constants.js';
+import {
+  SHIPPING_MEDIUM_MAX_COOKIES,
+  SHIPPING_FEE_MEDIUM,
+  SHIPPING_FEE_LARGE,
+  MIN_ORDER_SUBTOTAL,
+} from '../constants.js';
 
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or the
 // special-cased localhost) — it's silently absent when the dev server is
@@ -54,16 +59,16 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
   }
 
-  // Like total, but a redeemed reward counts at its real menu-equivalent
-  // value instead of the $0 it actually charges — so an order that's fully
-  // paid for in points still counts as real value for the minimum-order
-  // checkout rule, rather than always reading as $0. UX preview only; the
-  // server independently recomputes and is authoritative.
-  get valueTotal() {
-    return this.items.reduce((sum, item) => {
-      const unitValue = item.cookie.value !== undefined ? item.cookie.value : item.cookie.price;
-      return sum + unitValue * item.qty;
-    }, 0);
+  // Whether this order redeems a reward — such an order is exempt from the
+  // minimum-order rule. UX preview only; the server independently decides and
+  // is authoritative.
+  get hasReward() {
+    return this.items.some((item) => item.cookie.isReward === true);
+  }
+
+  // Whether the cart should block checkout for being under the minimum.
+  get belowMinimum() {
+    return !this.hasReward && this.total < MIN_ORDER_SUBTOTAL;
   }
 
   get cookieCount() {

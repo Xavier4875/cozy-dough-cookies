@@ -22,9 +22,13 @@ const WALLETS = {
 // "Apple Pay (Mastercard ending in 4444)". `payment` is the order's stored
 // payment record. Orders placed before card details were recorded still know
 // they went through Stripe, just not which card; an order with no payment
-// record at all says so rather than guessing.
-export function describePaymentMethod(payment) {
-  if (!payment) return 'Not recorded';
+// record at all says so rather than guessing — except an order that cost no
+// money because it was paid for entirely in reward points, which says that.
+// `order` is optional; it's only used to recognise that case.
+export function describePaymentMethod(payment, order) {
+  if (!payment) {
+    return order?.total === 0 && order?.pointsSpent > 0 ? 'Paid with reward points' : 'Not recorded';
+  }
   const method = payment.method;
   if (method?.type !== 'card') {
     return payment.provider === 'stripe' ? 'Paid through Stripe' : 'Not recorded';

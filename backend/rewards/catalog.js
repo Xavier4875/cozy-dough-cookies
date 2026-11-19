@@ -1,5 +1,5 @@
 import { Cookie } from '../models/Cookie.js';
-import { POINTS_PER_DOLLAR } from '../constants.js';
+import { POINTS_PER_DOLLAR, UNITS_PER_SIZE, MIN_COOKIES_PER_FLAVOR } from '../constants.js';
 
 // 25 points per $1 of redemption value (POINTS_PER_DOLLAR — a 4% return rate,
 // since purchases earn 1 point per $1) — every reward's cost is derived from
@@ -10,6 +10,14 @@ import { POINTS_PER_DOLLAR } from '../constants.js';
 // round cost even if their menu price changes.
 function reward(key, type, size, qty, sizeLabel, label, pointsOverride) {
   const price = Cookie.TYPES[type].prices[size];
+  // The reward's cookies are split into portions of (at most) six, and the
+  // customer assigns a flavor to each portion. A flavor may take several
+  // portions but can never take less than one, so every flavor in the reward
+  // has at least six cookies and there can be at most `flavorSlots` of them:
+  // a single and a half dozen are one portion, a dozen is two, two dozen is
+  // four, three dozen is six, and so on.
+  const cookies = UNITS_PER_SIZE[size] * qty;
+  const slotCookies = Math.min(cookies, MIN_COOKIES_PER_FLAVOR);
   return {
     key,
     type,
@@ -17,13 +25,10 @@ function reward(key, type, size, qty, sizeLabel, label, pointsOverride) {
     qty,
     sizeLabel,
     label,
+    cookies,
+    slotCookies,
+    flavorSlots: cookies / slotCookies,
     points: pointsOverride ?? Math.round(price * qty * POINTS_PER_DOLLAR),
-    // The real menu-equivalent dollar value this reward stands in for (e.g.
-    // Two Dozen Standard = two Full Dozen Standard prices), separate from the
-    // $0 it actually charges — used so a fully-redeemed order can still count
-    // toward the minimum-order-value checkout rule instead of always reading
-    // as $0.
-    value: price * qty,
     // Rough, type-level badge shown on the Rewards page before a flavor is
     // even picked. The real per-flavor answer is computed at redemption time
     // (see backend/index.js's redemption fold-in, RewardFlavorModal.jsx).

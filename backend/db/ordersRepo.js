@@ -43,6 +43,66 @@ export async function createOrder(record) {
   return record;
 }
 
+// Thrown by createOrdersSpendingPoints when the customer's balance can't cover
+// the points the orders redeem (or they have no points account at all).
+export class InsufficientPointsError extends Error {
+  constructor() {
+    super('Not enough reward points.');
+    this.name = 'InsufficientPointsError';
+  }
+}
+
+// Saves the orders of a checkout that costs no money — everything in it is paid
+// for with reward points — and takes those points off the customer's balance, in
+// ONE all-or-nothing DynamoDB transaction. There is no Stripe payment behind
+// such an order to refund if a later step fails, so it can't be done in two
+// steps the way a paid checkout is: either the customer has the order AND the
+// points are gone, or neither happened. That also makes it impossible to get the
+// order without paying the points (the balance condition rejects the whole
+// transaction), and — because the order ids are derived from the checkout's
+// one-time key (see freeCheckout.js) — a repeated request can't place it, or
+// spend the points, a second time.
+//
+// Throws DuplicateOrderError if any order id already exists (the same checkout
+// was already placed) and InsufficientPointsError if the balance is too low;
+// nothing is written in either case.
+export async function createOrdersSpendingPoints(records, customerId, points) {
+  try {
+    await docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          ...records.map((record) => ({
+            Put: { TableName: ORDERS_TABLE, Item: record, ConditionExpression: 'attribute_not_exists(orderId)' },
+          })),
+          {
+            Update: {
+              TableName: CUSTOMERS_TABLE,
+              Key: { customerId },
+              UpdateExpression: 'ADD rewards :negPoints',
+              // A missing row or missing balance also fails this, which is the
+              // right answer: no account, no points to spend.
+              ConditionExpression: 'rewards >= :points',
+              ExpressionAttributeValues: { ':negPoints': -points, ':points': points },
+            },
+          },
+        ],
+      })
+    );
+  } catch (err) {
+    if (err.name !== 'TransactionCanceledException') throw err;
+    const reasons = err.CancellationReasons ?? [];
+    // Reported per item, in the order given above: the orders first, then the
+    // customer. An existing order wins over a short balance — the first request
+    // already placed this checkout (and spent its points), so the repeat must
+    // read as "already placed", not "not enough points".
+    const duplicate = records.findIndex((_, i) => reasons[i]?.Code === 'ConditionalCheckFailed');
+    if (duplicate !== -1) throw new DuplicateOrderError(records[duplicate].orderId);
+    if (reasons[records.length]?.Code === 'ConditionalCheckFailed') throw new InsufficientPointsError();
+    throw err;
+  }
+  return records;
+}
+
 // Replaces the whole fulfillment map in one write, rather than a partial
 // nested-attribute update expression — simpler and safe here since callers
 // (currently only the address-verification retry queue) always have the
@@ -139,16 +199,29 @@ export async function updateOrderPoints(orderId, { pointsEarned, pointsSpent }) 
 // existing redemption check (balance >= cost) keeps them from spending more
 // until they've earned it.
 //
-// Returns { canceled: false } if the order was already canceled or completed
-// (nothing written), else { canceled: true, pointsAdjusted } where
-// pointsAdjusted is { earned, spent } or null if no points moved.
-export async function cancelOrderRecord(order, { canceledAt, refund, refundSkipped, points }) {
+// `afterCompletion` is the refund of an order that was already picked up or
+// delivered (a "past order"): the same write, but the guard is reversed — it only
+// applies to an order that IS completed — and the order is marked
+// `refundedAfterCompletion` so screens can say "Refunded" instead of "Canceled".
+// completedAt is left as it was: "it was picked up, then refunded" is real
+// history, and the order stays out of Sales like any canceled order.
+//
+// Returns { canceled: false } if the order wasn't in the state this needs (already
+// canceled or completed — or, for afterCompletion, not completed): nothing
+// written. Else { canceled: true, pointsAdjusted } where pointsAdjusted is
+// { earned, spent } or null if no points moved.
+export async function cancelOrderRecord(order, { canceledAt, refund, refundSkipped, points, afterCompletion = false }) {
   const { earned = 0, spent = 0 } = points ?? {};
   const moveFor = order.customerId && (earned > 0 || spent > 0) ? order.customerId : null;
 
   const sets = ['#status = :canceled', '#canceledAt = :canceledAt'];
   const names = { '#status': 'status', '#canceledAt': 'canceledAt' };
   const values = { ':canceled': 'canceled', ':canceledAt': canceledAt, ':completed': 'completed' };
+  if (afterCompletion) {
+    sets.push('#refundedAfterCompletion = :true');
+    names['#refundedAfterCompletion'] = 'refundedAfterCompletion';
+    values[':true'] = true;
+  }
   if (refund) {
     sets.push('#refund = :refund');
     names['#refund'] = 'refund';
@@ -166,7 +239,7 @@ export async function cancelOrderRecord(order, { canceledAt, refund, refundSkipp
       ...sets,
       ...(withPoints ? ['#pointsAdjustment = :pointsAdjustment'] : []),
     ].join(', ')}`,
-    ConditionExpression: 'NOT (#status IN (:canceled, :completed))',
+    ConditionExpression: afterCompletion ? '#status = :completed' : 'NOT (#status IN (:canceled, :completed))',
     ExpressionAttributeNames: { ...names, ...(withPoints && { '#pointsAdjustment': 'pointsAdjustment' }) },
     ExpressionAttributeValues: {
       ...values,

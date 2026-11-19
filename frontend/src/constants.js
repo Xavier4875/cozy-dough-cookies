@@ -17,6 +17,13 @@ export const PICKUP_WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 
 // regular pickup orders, which have no advance-notice floor at all.
 export const PICKUP_EXTENDED_NOTICE_MS = 48 * 60 * 60 * 1000;
 
+// Which version of the pickup notice PickupScheduleModal shows (and the
+// "I understand" checkbox agrees to). Sent with every pickup order; the server
+// refuses any other value and saves it on the order as proof of what was agreed
+// to. Must equal PICKUP_NOTICE_VERSION in backend/pickup/notice.js, where the
+// wording of each version is kept — change both together, with the notice text.
+export const PICKUP_NOTICE_VERSION = '2026-11-19';
+
 // Shipping address format
 export const ZIP_RE = /^\d{5}(-\d{4})?$/;
 
@@ -176,6 +183,22 @@ export function dietaryMarker(type) {
 export function sizeLabelWithMarker(item) {
   const marker = dietaryMarker(item.type);
   return marker ? `${marker}, ${item.sizeLabel}` : item.sizeLabel;
+}
+
+// A line is a redeemed reward when it carries the flag (a cart line, or an order
+// saved from now on) or — for orders saved before the flag existed — the
+// "reward-" id the checkout always gave it. Works for a cart cookie and for a
+// saved order item alike (both are plain objects with `id`).
+export function isRewardItem(line) {
+  return line?.isReward === true || String(line?.id ?? '').startsWith('reward-');
+}
+
+// What an item's price column shows: dollars for an ordinary item, and for a
+// redeemed reward its cost in points — never a misleading "$0.00". Older orders
+// didn't save the cost, so those just say "Points".
+export function itemPriceText(line, qty) {
+  if (!isRewardItem(line)) return `$${(line.price * qty).toFixed(2)}`;
+  return Number.isFinite(line.pointsCost) ? `${line.pointsCost * qty} pts` : 'Points';
 }
 
 // Cognito accounts sit in an unconfirmed limbo between signUp() and a

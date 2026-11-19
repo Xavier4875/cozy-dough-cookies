@@ -1,0 +1,14 @@
+# Cozy Dough Cookies
+# Everything public is open to search engines. Private pages (accounts, orders,
+# staff tools) and the API are kept out.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /sign-in
+Disallow: /sign-up
+Disallow: /forgot-password
+Disallow: /order-history
+Disallow: /order-tracking
+Disallow: /sales
+
+Sitemap: https://cozydoughcookies.com/sitemap.xml

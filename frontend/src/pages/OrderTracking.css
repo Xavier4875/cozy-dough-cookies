@@ -82,6 +82,26 @@
   color: #7a1a13;
 }
 
+/* "Refund order" on a picked-up order in Recent Orders: outlined, so it reads as
+   a deliberate action rather than blending in with the details. */
+.order-tracking-refund-btn {
+  flex-shrink: 0;
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #b3261e;
+  border-radius: 6px;
+  background: #fff;
+  color: #b3261e;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-tracking-refund-btn:hover {
+  background: #fdecea;
+}
+
 .order-tracking-table {
   width: 100%;
   border-collapse: collapse;

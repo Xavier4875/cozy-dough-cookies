@@ -26,7 +26,7 @@ function Policy() {
       <section className="policy-section">
         <h2>Ordering &amp; Payment</h2>
         <ul>
-          <li>Each order must total at least $12 before shipping.</li>
+          <li>Each order must total at least $12 before shipping, unless it redeems a reward.</li>
           <li>
             On this website, we accept card, Apple Pay, and Google Pay through Stripe only &mdash;
             no cash, PayPal, Venmo, or Zelle.
@@ -61,6 +61,11 @@ function Policy() {
           </li>
           <li>Temperature-controlled items (marked on the menu) are pickup only &mdash; they can&apos;t be shipped.</li>
           <li>Your pickup address is included in your order confirmation email.</li>
+          <li>
+            The pickup time you choose at checkout is a request. We&apos;ll email you as soon as
+            it&apos;s confirmed, so please wait for that confirmation before coming to pick up your
+            order.
+          </li>
           <li>
             You have 24 hours after your confirmed pickup time to pick up your order. If we
             don&apos;t hear from you within that window, your order is forfeited and may be given

@@ -2,14 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/useAuth.js';
 import Mascot from '../components/Mascot.jsx';
 import OrderHistoryList from '../components/OrderHistoryList.jsx';
+import RewardTag from '../components/RewardTag.jsx';
 import {
   PICKUP_OPEN_MINUTES,
   PICKUP_CLOSE_MINUTES,
   PICKUP_EXTENDED_NOTICE_MS,
   dietaryMarker,
   sizeLabelWithMarker,
+  isRewardItem,
+  itemPriceText,
 } from '../constants.js';
 import { describePaymentMethod } from '../paymentMethod.js';
+import {
+  canRefundRecentOrder,
+  isRefundedAfterPickup,
+  requestOrderRefund,
+  applyRefundToOrder,
+} from '../orderRefund.js';
 import './OrderTracking.css';
 
 // Time-slot options for the staff pickup-time edit form — same grid-of-
@@ -57,6 +66,20 @@ function formatPickupDateTime(pickupDate, pickupTime) {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+  });
+}
+
+// When the customer's agreement to the pickup notice was recorded: a real
+// instant (ISO, from the server), shown in the viewer's own time zone and
+// labelled with it, so the time can't be misread.
+function formatNoticeAgreedAt(isoString) {
+  return new Date(isoString).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
   });
 }
 
@@ -247,6 +270,15 @@ function PickupTimeCell({
       {order.fulfillment.staffNote && (
         <p className="order-tracking-staff-note">Note: {order.fulfillment.staffNote}</p>
       )}
+      {/* Proof that the customer agreed to the pickup notice (request-only time,
+          forfeited with no refund after 24 hours) when placing the order — worth
+          checking before treating an unclaimed order as forfeited. Orders placed
+          before this was recorded have none. See backend/pickup/notice.js. */}
+      <p className="order-tracking-staff-note">
+        {order.pickupNotice
+          ? `Agreed to the pickup notice on ${formatNoticeAgreedAt(order.pickupNotice.acknowledgedAt)}`
+          : 'No agreement to the pickup notice on file'}
+      </p>
       {!readOnly && error && <p className="order-tracking-action-error">{error}</p>}
       {!readOnly && (
         <div className="order-tracking-stage-actions">
@@ -318,7 +350,8 @@ function OrderStatusCell({ order, method, readOnly, isSaving, error, onSetStatus
   if (readOnly) {
     return (
       <div className="order-tracking-stage-value">
-        <StatusBadge status={status} label={labels[status]} />
+        {/* An order refunded after pickup is stored as canceled but reads "Refunded". */}
+        <StatusBadge status={status} label={isRefundedAfterPickup(order) ? 'Refunded' : labels[status]} />
       </div>
     );
   }
@@ -385,7 +418,9 @@ function OrderTimeline({ order }) {
       )}
       {order.canceledAt && (
         <li>
-          <span>Canceled</span>
+          {/* After a refund of a picked-up order the order was not "canceled": it
+              was picked up (the row above), then refunded. */}
+          <span>{isRefundedAfterPickup(order) ? 'Refund issued' : 'Canceled'}</span>
           <span>{formatOrderDate(order.canceledAt)}</span>
         </li>
       )}
@@ -545,7 +580,108 @@ function CancelOrderModal({ order, isSaving, error, onConfirm, onClose }) {
   );
 }
 
-function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnly = false, onCancel }) {
+const REFUND_PHRASE = 'refund order';
+
+// Two-step confirmation before refunding an order that was already picked up or
+// delivered — the same warn -> type-to-confirm shape as CancelOrderModal, because
+// this is just as final: the customer's card is refunded straight away and the
+// order can't be reopened. The first step names the order (who, what, how much)
+// so the wrong one is easy to spot; the second needs the phrase typed.
+//
+// There is no "refund or not" choice here (unlike canceling a not-yet-made order):
+// refunding is the whole point of this action. What it does to the customer's
+// reward points is spelled out, since the points follow the money.
+function RefundOrderModal({ order, isSaving, error, onConfirm, onClose }) {
+  const [step, setStep] = useState('warn');
+  const [typedPhrase, setTypedPhrase] = useState('');
+  const [formError, setFormError] = useState('');
+  const paid = Boolean(order?.payment?.paymentIntentId) && order.total > 0;
+  const refundAmount = paid ? `$${order.total.toFixed(2)}` : '';
+  const pointsEarned = order?.customerId ? order.pointsEarned || 0 : 0;
+  const pointsSpent = order?.customerId ? order.pointsSpent || 0 : 0;
+  const pointsNote =
+    pointsEarned > 0 || pointsSpent > 0
+      ? `Reward points: ${[
+          pointsEarned > 0 && `${pointsEarned} the customer earned will be taken back`,
+          pointsSpent > 0 && `${pointsSpent} they spent will be returned`,
+        ]
+          .filter(Boolean)
+          .join(' and ')}.`
+      : '';
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (typedPhrase.trim().toLowerCase() !== REFUND_PHRASE) {
+      setFormError(`Type "${REFUND_PHRASE}" exactly to confirm.`);
+      return;
+    }
+    setFormError('');
+    onConfirm();
+  }
+
+  return (
+    <div className="cancel-order-overlay" onClick={onClose}>
+      <div className="cancel-order-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Refund Order</h2>
+        {step === 'warn' ? (
+          <>
+            <p>
+              <strong>
+                {order.contact.firstName} {order.contact.lastName}
+              </strong>
+              {' — '}
+              {order.items.map((item) => `${item.flavor} × ${item.qty}`).join(', ')}
+              {' — '}
+              ${order.total.toFixed(2)}
+            </p>
+            <p>
+              This order was already {order.fulfillment?.method === 'shipping' ? 'delivered' : 'picked up'}.{' '}
+              {paid
+                ? `Refunding it sends ${refundAmount} back to the customer's card right away.`
+                : 'It was paid for with reward points, so no money is refunded: its points are returned instead.'}{' '}
+              The order will be marked <strong>Refunded</strong>, the customer will be emailed, and this can&apos;t
+              be undone.
+            </p>
+            {pointsNote && <p className="cancel-order-points-note">{pointsNote}</p>}
+            <div className="cancel-order-actions">
+              <button type="button" className="cancel-order-cancel-btn" onClick={onClose}>
+                No
+              </button>
+              <button type="button" className="cancel-order-confirm-btn" onClick={() => setStep('type')}>
+                Yes, refund
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <p>
+              Type <strong>{REFUND_PHRASE}</strong> below and press Submit to refund this order
+              {paid ? ` (${refundAmount})` : ''}.
+            </p>
+            <input
+              type="text"
+              className="cancel-order-input"
+              value={typedPhrase}
+              onChange={(e) => setTypedPhrase(e.target.value)}
+              autoFocus
+            />
+            {(formError || error) && <p className="order-tracking-action-error">{formError || error}</p>}
+            <div className="cancel-order-actions">
+              <button type="button" className="cancel-order-cancel-btn" onClick={onClose} disabled={isSaving}>
+                Close
+              </button>
+              <button type="submit" className="cancel-order-confirm-btn" disabled={isSaving}>
+                {isSaving ? 'Refunding…' : 'Submit'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnly = false, onCancel, onRefund }) {
   return (
     <>
       <div className="order-tracking-order-header">
@@ -553,6 +689,14 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
         {onCancel && (
           <button type="button" className="order-tracking-cancel-btn" onClick={onCancel} aria-label="Cancel order">
             ✕
+          </button>
+        )}
+        {/* Only passed for Recent Orders, and only shown for an order that is done
+            (picked up/delivered) and has something to give back. Past Orders (older
+            than a week) has no refund button, and the server refuses those too. */}
+        {onRefund && canRefundRecentOrder(order) && (
+          <button type="button" className="order-tracking-refund-btn" onClick={onRefund}>
+            Refund order
           </button>
         )}
       </div>
@@ -573,8 +717,9 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
                   <li key={item.id}>
                     <span>
                       {item.flavor} ({sizeLabelWithMarker(item)}) × {item.qty}
+                      {isRewardItem(item) && <RewardTag />}
                     </span>
-                    <span>${(item.price * item.qty).toFixed(2)}</span>
+                    <span>{itemPriceText(item, item.qty)}</span>
                   </li>
                 ))}
               </ul>
@@ -596,7 +741,7 @@ function OrderTable({ order, pickupCellProps = {}, statusCellProps = {}, readOnl
           </tr>
           <tr>
             <th>Payment Method</th>
-            <td>{describePaymentMethod(order.payment)}</td>
+            <td>{describePaymentMethod(order.payment, order)}</td>
           </tr>
           {order.fulfillment?.method && (
             <tr>
@@ -804,6 +949,9 @@ function OrderTracking() {
   // same shape as editingOrderId.
   const [cancelingOrderId, setCancelingOrderId] = useState(null);
 
+  // Same, for refunding an order that was already picked up (Recent Orders).
+  const [refundingOrderId, setRefundingOrderId] = useState(null);
+
   const isStaff = isAuthenticated && user.role === 'staff';
 
   useEffect(() => {
@@ -1002,6 +1150,23 @@ function OrderTracking() {
     }
   }
 
+  // Refunds an order from Recent Orders that was already picked up/delivered.
+  // The server refunds the card first and, if Stripe refuses, leaves the order
+  // completed and says why — shown inside the dialog so staff can retry. On
+  // success the row is updated in place (it reads "Refunded" and loses its button).
+  async function handleRefundOrder(orderId) {
+    setSavingOrderId(orderId);
+    setErrorsByOrderId((prev) => ({ ...prev, [orderId]: '' }));
+    const { data, error } = await requestOrderRefund(getIdToken, orderId);
+    setSavingOrderId(null);
+    if (error) {
+      setErrorsByOrderId((prev) => ({ ...prev, [orderId]: error }));
+      return;
+    }
+    setRecentOrders((prev) => prev.map((o) => (o.orderId === orderId ? applyRefundToOrder(o, data) : o)));
+    setRefundingOrderId(null);
+  }
+
   function handleStartEdit(order) {
     setEditingOrderId(order.orderId);
     setEditForm({
@@ -1116,10 +1281,27 @@ function OrderTracking() {
         ) : (
           recentOrders.map((order) => (
             <div key={order.orderId} className="order-tracking-order">
-              <OrderTable order={order} readOnly />
+              <OrderTable
+                order={order}
+                readOnly
+                onRefund={() => {
+                  setErrorsByOrderId((prev) => ({ ...prev, [order.orderId]: '' }));
+                  setRefundingOrderId(order.orderId);
+                }}
+              />
             </div>
           ))
         ))}
+
+      {refundingOrderId && recentOrders.some((o) => o.orderId === refundingOrderId) && (
+        <RefundOrderModal
+          order={recentOrders.find((o) => o.orderId === refundingOrderId)}
+          isSaving={savingOrderId === refundingOrderId}
+          error={errorsByOrderId[refundingOrderId]}
+          onConfirm={() => handleRefundOrder(refundingOrderId)}
+          onClose={() => setRefundingOrderId(null)}
+        />
+      )}
 
       {tab === 'past' && <PastOrdersPanel getIdToken={getIdToken} />}
     </div>

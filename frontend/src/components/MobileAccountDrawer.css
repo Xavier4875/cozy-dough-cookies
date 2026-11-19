@@ -9,7 +9,9 @@
 
 .mobile-account-sheet {
   width: 100%;
+  /* Bounded by the visible area, not just vh — see .mobile-cart-sheet. */
   max-height: 90vh;
+  max-height: min(90vh, 90%);
   background: #fffaf3;
   padding: 1.5rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;

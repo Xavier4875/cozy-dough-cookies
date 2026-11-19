@@ -11,7 +11,10 @@
 
 .pickup-schedule-modal {
   width: min(440px, 100%);
+  /* Bounded by the visible area (the overlay's inside), not just vh: on iPhone
+     Safari vh ignores the bottom toolbar, so 90vh can run underneath it. */
   max-height: 90vh;
+  max-height: min(90vh, 100%);
   overflow-y: auto;
   background: #fffaf3;
   border-radius: 12px;
@@ -137,6 +140,55 @@
   color: #3d2b1f;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+/* The request / forfeiture notice on the final pickup step. Warm and clearly
+   set apart, but not an error colour: it is information, not a problem. */
+.pickup-schedule-request-notice {
+  margin: 0 0 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e3c79a;
+  border-left: 4px solid #b8864b;
+  border-radius: 8px;
+  background: #fff4e0;
+  color: #3d2b1f;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.pickup-schedule-request-notice p {
+  margin: 0 0 0.5rem;
+}
+
+.pickup-schedule-request-notice p:last-child {
+  margin-bottom: 0;
+}
+
+.pickup-schedule-request-notice-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* The required "I understand" box under the notice; Confirm stays off until it is ticked. */
+.pickup-schedule-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0;
+  color: #3d2b1f;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.pickup-schedule-ack input {
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0.1rem 0 0;
+  accent-color: #3d2b1f;
+  cursor: pointer;
 }
 
 .pickup-schedule-time-grid {

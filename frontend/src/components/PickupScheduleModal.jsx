@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   PICKUP_WEEKDAY_LABELS as WEEKDAY_LABELS,
   PICKUP_OPEN_MINUTES as OPEN_MINUTES,
@@ -7,7 +7,9 @@ import {
   PICKUP_EXTENDED_NOTICE_MS as EXTENDED_NOTICE_MS,
   sizeLabelWithMarker,
   dietaryMarker,
+  itemPriceText,
 } from '../constants.js';
+import RewardTag from './RewardTag.jsx';
 import './PickupScheduleModal.css';
 
 function pad2(n) {
@@ -112,6 +114,14 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
   const [selectedTime, setSelectedTime] = useState(null);
   const [sameDayPickup, setSameDayPickup] = useState(false);
   const [timeError, setTimeError] = useState('');
+  // The "I understand" box on the final step. It starts unticked every time the
+  // customer lands on that step (picking a time, or reopening this modal), so
+  // they confirm the pickup notice for the time they are actually about to book.
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setAcknowledged(false);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -122,6 +132,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
     setSelectedTime(null);
     setSameDayPickup(false);
     setTimeError('');
+    setAcknowledged(false);
     onCancel();
   }
 
@@ -141,7 +152,11 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
   // back to the time step with an explanation instead of submitting a
   // doomed request.
   function handleConfirmClick() {
+    // The button is disabled until the box is ticked; this is the same rule
+    // enforced where the order would actually go through.
+    if (!acknowledged) return;
     if (!isSlotStillValid(selectedDate, selectedTime, minNoticeMs)) {
+      setAcknowledged(false);
       setSelectedTime(null);
       setTimeError(
         requiresExtendedNotice
@@ -281,6 +296,7 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
                   onClick={() => {
                     setSelectedTime(slot.time);
                     setTimeError('');
+                    setAcknowledged(false);
                     setStep('confirm');
                   }}
                 >
@@ -308,8 +324,9 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
                     <li key={item.cookie.id}>
                       <span>
                         {item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)}) × {item.qty}
+                        {item.cookie.isReward && <RewardTag />}
                       </span>
-                      <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
+                      <span>{itemPriceText(item.cookie, item.qty)}</span>
                     </li>
                   ))}
                 </ul>
@@ -318,14 +335,47 @@ function PickupScheduleModal({ isOpen, orders = [], onCancel, onConfirm }) {
             <p className="cart-total">Total: ${grandTotal.toFixed(2)}</p>
             <p className="pickup-schedule-subtitle">
               {sameDayPickup
-                ? `Same Day Pickup: ${formatTime12h(selectedTime)}`
-                : `Pickup: ${formatDateLong(selectedDate)} at ${formatTime12h(selectedTime)}`}
+                ? `Requested same day pickup: ${formatTime12h(selectedTime)}`
+                : `Requested pickup: ${formatDateLong(selectedDate)} at ${formatTime12h(selectedTime)}`}
             </p>
+            {/* The last thing read before the order is placed. Mirrors the pickup
+                rules on the Policy page (confirmation first; 24 hours after the
+                confirmed time, then forfeited with no refund) — keep the two in step. */}
+            <div className="pickup-schedule-request-notice" role="note">
+              <p className="pickup-schedule-request-notice-title">
+                Please read before placing your order
+              </p>
+              <p>
+                The pickup time you chose is a <strong>request</strong>. We&apos;ll email you as
+                soon as it&apos;s confirmed, so please wait for that confirmation before coming to
+                pick up your order. Thank you!
+              </p>
+              <p>
+                Once your time is confirmed, please pick up your order or contact us within{' '}
+                <strong>24 hours</strong> of the scheduled pickup time. If it hasn&apos;t been
+                picked up and we haven&apos;t heard from you by then, the order will be
+                forfeited with <strong>no refund</strong>. We&apos;d hate for that to happen, so
+                just reach out if your plans change!
+              </p>
+            </div>
+            <label className="pickup-schedule-ack">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(e) => setAcknowledged(e.target.checked)}
+              />
+              <span>I understand the pickup notice above.</span>
+            </label>
             <div className="pickup-schedule-actions">
               <button type="button" className="pickup-schedule-cancel-btn" onClick={() => setStep('time')}>
                 Back
               </button>
-              <button type="button" className="checkout-btn" onClick={handleConfirmClick}>
+              <button
+                type="button"
+                className="checkout-btn"
+                onClick={handleConfirmClick}
+                disabled={!acknowledged}
+              >
                 Confirm &amp; Place Order
               </button>
             </div>

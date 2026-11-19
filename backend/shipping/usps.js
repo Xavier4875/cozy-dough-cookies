@@ -1,4 +1,5 @@
 import { USPS_RATE_LIMIT_MAX_CALLS_DEFAULT, USPS_RATE_LIMIT_WINDOW_MS_DEFAULT } from '../constants.js';
+import { notifyStaff } from '../email/staffAlert.js';
 
 const BASE_URL = process.env.USPS_API_BASE_URL || 'https://apis.usps.com';
 const TOKEN_URL = `${BASE_URL}/oauth2/v3/token`;
@@ -49,6 +50,35 @@ function checkRateLimit() {
 // the current window's budget frees up.
 export function getRateLimitResetAt() {
   return rateLimitWindowStart + RATE_LIMIT_WINDOW_MS;
+}
+
+// "Couldn't check" must never block a sale (see validateAddress), but it also
+// must never be invisible: when USPS refuses or can't be reached, every address
+// quietly goes through unverified. That's how an access change on USPS's side
+// (Addresses API licensing, 8/1/2026) went unnoticed. So each such failure is
+// logged with USPS's own reason, and staff are emailed about it — at most once
+// per UNAVAILABLE_ALERT_COOLDOWN_MS for each kind of failure, so a USPS outage
+// or a retry-queue pass can't flood their inboxes. Our own quota running out
+// ('rate_limited') is not reported here: it's a traffic spike, not a fault.
+const UNAVAILABLE_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const lastUnavailableAlertAt = new Map(); // failure kind -> when staff were last emailed
+
+function reportUnavailable(kind, detail) {
+  console.error(`USPS address check unavailable (${kind}): ${detail}`);
+  const now = Date.now();
+  if (now - (lastUnavailableAlertAt.get(kind) ?? -Infinity) < UNAVAILABLE_ALERT_COOLDOWN_MS) return;
+  lastUnavailableAlertAt.set(kind, now);
+  const lines = [
+    `The shop couldn't check a shipping address with USPS (${kind}). Shipping orders are still being accepted, but their addresses are not being verified: they show "Address could not be verified" in Order Tracking, so look each one over before shipping.`,
+    `USPS said: ${detail}`,
+  ];
+  if (kind === '401' || kind === '403' || kind === 'login') {
+    lines.push(
+      'This usually means the USPS API app needs attention: an Addresses API license or its credentials (USPS Business Customer Gateway, cop.usps.com, My Account > API Licenses).'
+    );
+  }
+  lines.push('While the problem continues you will get this email at most once every 6 hours.');
+  notifyStaff({ subject: "USPS address checks aren't working", lines }).catch(() => {});
 }
 
 let cachedToken = null; // { accessToken, expiresAt }
@@ -178,6 +208,8 @@ async function attemptValidate({ line1, line2, city, state, zip }) {
       if (res.status === 400 && body?.error?.message) {
         return { verified: false, reason: 'rejected' };
       }
+      const said = body?.error?.message ?? res.statusText ?? '';
+      reportUnavailable(String(res.status), String(said).replace(/\s+/g, ' ').trim().slice(0, 300) || 'no message');
       return { verified: false, reason: 'error' };
     }
 
@@ -199,7 +231,10 @@ async function attemptValidate({ line1, line2, city, state, zip }) {
       },
     };
   } catch (err) {
-    console.error('USPS address validation failed:', err);
+    // getAccessToken's own failure ("USPS OAuth token request failed: 401") is a
+    // credentials problem; anything else here is the network or a timeout.
+    const isLogin = /^USPS OAuth/.test(err?.message ?? '');
+    reportUnavailable(isLogin ? 'login' : 'network', String(err?.message ?? err).slice(0, 300));
     return { verified: false, reason: 'error' };
   }
 }

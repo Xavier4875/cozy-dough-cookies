@@ -27,15 +27,10 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.cookie.price * item.qty, 0);
   }
 
-  // Like total, but a redeemed reward counts at its real menu-equivalent
-  // value instead of the $0 it actually charges — so an order that's fully
-  // paid for in points still counts as real value for the minimum-order
-  // checkout rule, rather than always reading as $0.
-  get valueTotal() {
-    return this.items.reduce((sum, item) => {
-      const unitValue = item.cookie.value !== undefined ? item.cookie.value : item.cookie.price;
-      return sum + unitValue * item.qty;
-    }, 0);
+  // Whether this order redeems a reward — such an order is exempt from the
+  // minimum-order rule (see checkout/rules.js).
+  get hasReward() {
+    return this.items.some((item) => item.cookie.isReward === true);
   }
 
   // Shipping isn't available when any item needs refrigeration.
@@ -87,6 +82,10 @@ export class Order {
         // 24 in the legacy table). undefined for items with no cookie count,
         // same as on Cookie.
         physicalCookieUnits: item.cookie.physicalCookieUnits,
+        // A redeemed reward is saved as one, with what it cost in points per
+        // unit, so every screen and email can label it "Redeemed with points"
+        // (its price is $0 — the cost is in points). Absent on ordinary items.
+        ...(item.cookie.isReward === true && { isReward: true, pointsCost: item.cookie.pointsCost }),
         qty: item.qty,
       })),
       total: this.total,

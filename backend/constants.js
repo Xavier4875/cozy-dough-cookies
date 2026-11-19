@@ -40,6 +40,13 @@ export const IP_RATE_LIMIT_WINDOW_MS_DEFAULT = 60 * 60 * 1000;
 
 // Rewards
 export const POINTS_PER_DOLLAR = 25;
+// A redeemed reward can mix flavors, but every flavor in it must be at least
+// this many cookies (so a half dozen is one flavor, a dozen at most two, two
+// dozen at most four, and so on). A reward is split into portions of this size
+// and each portion gets a flavor, which is what keeps the rule true — see
+// flavorSlots in rewards/catalog.js. Only the server needs this number: the
+// browser gets the resulting portion counts from /api/rewards/catalog.
+export const MIN_COOKIES_PER_FLAVOR = 6;
 
 // Guest checkout email verification
 export const EMAIL_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000; // time allowed to enter the code

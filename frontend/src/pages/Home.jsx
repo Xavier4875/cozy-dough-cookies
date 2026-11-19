@@ -1,5 +1,5 @@
 import Mascot from '../components/Mascot.jsx';
-import heroImage from '../assets/hero.jpg';
+import heroImage from '../assets/hero-baker.jpg';
 import './Home.css';
 
 function Home() {

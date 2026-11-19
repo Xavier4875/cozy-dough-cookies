@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useCart } from '../context/useCart.js';
 import Mascot from './Mascot.jsx';
 import CheckoutForm from './CheckoutForm.jsx';
-import { MIN_ORDER_SUBTOTAL, sizeLabelWithMarker } from '../constants.js';
+import RewardTag from './RewardTag.jsx';
+import { MIN_ORDER_SUBTOTAL, sizeLabelWithMarker, itemPriceText } from '../constants.js';
 import './CartDrawerContent.css';
 
 // The actual cart data/checkout UI, with no knowledge of whether it's
@@ -153,8 +154,9 @@ function CartDrawerContent() {
                                   </button>
                                 </span>
                               )}
+                              {item.cookie.isReward && <RewardTag />}
                             </span>
-                            <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
+                            <span>{itemPriceText(item.cookie, item.qty)}</span>
                           </li>
                         );
                       })}
@@ -166,15 +168,15 @@ function CartDrawerContent() {
                       <button
                         className="checkout-order-btn"
                         onClick={() => setCheckoutTarget({ type: 'order', orderId: order.id })}
-                        disabled={checkingOut || order.valueTotal < MIN_ORDER_SUBTOTAL}
+                        disabled={checkingOut || order.belowMinimum}
                       >
                         Checkout this order
                       </button>
                     )}
                   </div>
-                  {!order.isEmpty && order.valueTotal < MIN_ORDER_SUBTOTAL && (
+                  {!order.isEmpty && order.belowMinimum && (
                     <p className="cart-min-order-note">
-                      Add ${(MIN_ORDER_SUBTOTAL - order.valueTotal).toFixed(2)} more to meet the $
+                      Add ${(MIN_ORDER_SUBTOTAL - order.total).toFixed(2)} more to meet the $
                       {MIN_ORDER_SUBTOTAL.toFixed(2)} order minimum.
                     </p>
                   )}
@@ -190,7 +192,7 @@ function CartDrawerContent() {
                 disabled={
                   checkingOut ||
                   cart.isEmpty ||
-                  cart.orders.some((order) => !order.isEmpty && order.valueTotal < MIN_ORDER_SUBTOTAL)
+                  cart.orders.some((order) => !order.isEmpty && order.belowMinimum)
                 }
               >
                 Checkout all orders

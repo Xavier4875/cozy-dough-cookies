@@ -51,6 +51,12 @@
   border-bottom: 1px solid #eee;
 }
 
+/* The price on the right ("$12.00", or "300 pts" for a redeemed reward) stays on one line. */
+.cart-list li > span:last-child {
+  white-space: nowrap;
+  padding-left: 0.75rem;
+}
+
 .remove-btn {
   width: 1.5rem;
   height: 1.5rem;

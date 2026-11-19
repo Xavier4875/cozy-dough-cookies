@@ -9,15 +9,38 @@
   padding: 1.5rem;
 }
 
+/* The title and the footer (progress + buttons) stay put; only the flavor list
+   in between scrolls, so Confirm is always in reach however many flavors there
+   are — which matters on a phone. */
 .reward-flavor-modal {
   width: min(440px, 100%);
+  /* Bounded by the visible area, not just vh — see .pickup-schedule-modal. */
   max-height: 90vh;
-  overflow-y: auto;
+  max-height: min(90vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: #fffaf3;
   border-radius: 12px;
-  padding: 1.75rem;
+  padding: 1.75rem 1.75rem 1.25rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   box-sizing: border-box;
+}
+
+.reward-flavor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for focus outlines at the edges without clipping them. */
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem 0.25rem;
+}
+
+.reward-flavor-footer {
+  flex: none;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e6d8c0;
 }
 
 .reward-flavor-modal h2 {
@@ -61,12 +84,75 @@
   font-size: 0.7rem;
 }
 
+/* Rewards of a dozen or more: cookies are added to flavors six at a time. */
+.reward-flavor-help {
+  margin: 0 0 0.75rem;
+  color: #4b3a2e;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.reward-flavor-counter {
+  margin: 0 0 0.5rem;
+  font-weight: 700;
+  color: #8a4b12;
+}
+
+.reward-flavor-counter--done {
+  color: #2f6b3a;
+}
+
+.reward-flavor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.reward-flavor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #e6d8c0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reward-flavor-row--picked {
+  border-color: #b8864b;
+  background: #fff4e0;
+}
+
+.reward-flavor-row-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reward-flavor-row .reward-temp-note {
+  font-size: 0.7rem;
+}
+
+/* The buttons and number take the menu's stepper look (.stepper-btn and
+   .stepper-qty in CookieGrid.css); this only lays them out in the row. A fixed
+   width for the number keeps the buttons from shifting as it goes 0, 6, 12... */
+.reward-flavor-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.reward-flavor-count {
+  min-width: 1.75rem;
+}
+
 .reward-flavor-actions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 1rem;
 }
 
 .reward-flavor-cancel-btn {

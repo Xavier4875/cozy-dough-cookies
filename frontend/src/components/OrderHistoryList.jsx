@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { sizeLabelWithMarker } from '../constants.js';
+import RewardTag from './RewardTag.jsx';
+import { sizeLabelWithMarker, isRewardItem, itemPriceText } from '../constants.js';
+import { isRefundedAfterPickup } from '../orderRefund.js';
 import './OrderHistoryList.css';
 
 function formatOrderDate(isoString) {
@@ -67,7 +69,9 @@ function statusLabel(order) {
     case 'completed':
       return isShipping ? 'Delivered' : 'Picked up';
     case 'canceled':
-      return 'Canceled';
+      // An order refunded after it was picked up is stored as canceled, but the
+      // customer did have it: say "Refunded".
+      return isRefundedAfterPickup(order) ? 'Refunded' : 'Canceled';
     default:
       return order.status;
   }
@@ -149,8 +153,9 @@ function OrderCard({ order }) {
           <li key={item.id}>
             <span>
               {item.flavor} ({sizeLabelWithMarker(item)}) × {item.qty}
+              {isRewardItem(item) && <RewardTag />}
             </span>
-            <span>${(item.price * item.qty).toFixed(2)}</span>
+            <span>{itemPriceText(item, item.qty)}</span>
           </li>
         ))}
       </ul>

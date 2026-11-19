@@ -9,7 +9,14 @@
 
 .mobile-cart-sheet {
   width: 100%;
+  /* Never taller than the part of the screen that is actually visible. On iPhone
+     Safari, vh is the screen height with the bottom toolbar tucked away, so a
+     plain 90vh sheet runs underneath the toolbar while it is showing and the
+     last buttons (the Pay button) can't be scrolled into view. The overlay is
+     fixed to the visible area, so a percentage of it is always safe; vh is kept
+     as the cap on tall screens so the sheet looks the same as before. */
   max-height: 90vh;
+  max-height: min(90vh, 90%);
   background: #fffaf3;
   padding: calc(1.5rem + env(safe-area-inset-top, 0px)) 1.5rem 1.5rem;
   overflow-y: auto;

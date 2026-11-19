@@ -5,8 +5,20 @@ import PickupScheduleModal from './PickupScheduleModal.jsx';
 import ShippingAddressModal from './ShippingAddressModal.jsx';
 import StripePaymentForm from './StripePaymentForm.jsx';
 import { stripePromise } from '../stripe/client.js';
-import { EMAIL_RE } from '../constants.js';
+import { EMAIL_RE, PICKUP_NOTICE_VERSION } from '../constants.js';
 import './CheckoutForm.css';
+
+// A fresh one-time key for a checkout that costs nothing (paid for in points),
+// which has no Stripe payment id to make it happen exactly once. crypto's UUID
+// only exists in secure contexts, so there is a plain fallback of the same shape
+// (letters, digits and hyphens, well over the 16 characters the server wants).
+function newCheckoutKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const part = () => Math.random().toString(36).slice(2, 12).padEnd(10, '0');
+  return `${Date.now().toString(36)}-${part()}-${part()}`;
+}
 
 function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, error, pickupOnly, orders = [] }) {
   const { isAuthenticated, user } = useAuth();
@@ -161,6 +173,15 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
     setPaymentError('');
     try {
       const result = await onCreatePaymentIntent(details);
+      if (result.free) {
+        // Everything in this checkout is redeemed with reward points, so there
+        // is nothing to pay: no card form, straight to placing the order. The
+        // one-time key is what lets the server place it exactly once even if
+        // the request is sent twice (a double-click, a retry).
+        setPaymentStep('idle');
+        onSubmit({ ...details, checkoutKey: newCheckoutKey() });
+        return;
+      }
       setClientSecret(result.clientSecret);
       setPaymentAmount(result.amount);
       setPaymentStep('ready');
@@ -184,9 +205,14 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
 
   function handlePickupConfirm(pickupDate, pickupTime) {
     setIsScheduleOpen(false);
+    // The modal only gets here after the customer ticked "I understand" on the
+    // pickup notice. The version of that notice travels with the order, which is
+    // what the server requires and saves as proof of the agreement (see
+    // backend/pickup/notice.js). It rides in `fulfillment` so that both the
+    // payment-intent request and the final checkout request carry it.
     startPayment({
       contact: resolveContact(),
-      fulfillment: { method: 'pickup', pickupDate, pickupTime },
+      fulfillment: { method: 'pickup', pickupDate, pickupTime, acknowledgedPickupNotice: PICKUP_NOTICE_VERSION },
     });
   }
 

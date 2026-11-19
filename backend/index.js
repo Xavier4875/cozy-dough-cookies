@@ -50,6 +50,9 @@ import { installAsyncErrorHandling } from './middleware/asyncHandler.js';
 import { addToCustomerGroup } from './auth/cognitoGroup.js';
 import { REWARDS_CATALOG, getReward } from './rewards/catalog.js';
 import { allocateEarnedPoints, allocateSpentPoints, pointsToReverse } from './rewards/points.js';
+import { minimumOrderError, rewardsBalanceError } from './checkout/rules.js';
+import { placeFreeOrders } from './checkout/freeCheckout.js';
+import { PICKUP_NOTICE_VERSION } from './pickup/notice.js';
 import { validateAddress } from './shipping/usps.js';
 import { enqueue as enqueueAddressRetry } from './shipping/retryQueue.js';
 import { enqueue as enqueueEarnRetry } from './rewards/earnRetryQueue.js';
@@ -57,12 +60,12 @@ import { checkIpRateLimit } from './shipping/ipRateLimit.js';
 import { checkEmailSendRateLimit } from './email/rateLimit.js';
 import { sendVerificationCodeEmail, sendEmail, staffRecipients } from './email/ses.js';
 import { buildReceiptEmail } from './email/receipt.js';
-import { buildPickupTimeEmail, buildStatusChangeEmail } from './email/orderStatusEmail.js';
+import { buildPickupTimeEmail, buildStatusChangeEmail, buildRefundEmail } from './email/orderStatusEmail.js';
 import { buildStaffNewOrderEmail } from './email/staffNotification.js';
 import { enqueue as enqueueEmailRetry } from './email/emailRetryQueue.js';
 import { getStripeClient, isLiveMode } from './stripe/client.js';
 import { summarizePaymentMethod } from './stripe/paymentMethod.js';
-import { refundOrderPayment, refundWholePayment } from './stripe/refunds.js';
+import { refundOrderPayment, refundWholePayment, orderRefundCents } from './stripe/refunds.js';
 import { handleStripeEvent } from './stripe/webhookEvents.js';
 import { notifyStaff } from './email/staffAlert.js';
 import {
@@ -74,18 +77,19 @@ import {
   PICKUP_EXTENDED_NOTICE_MS,
   STATE_RE,
   ZIP_RE,
-  UNITS_PER_SIZE,
-  MIN_ORDER_SUBTOTAL,
   EMAIL_VERIFICATION_MAX_ATTEMPTS,
 } from './constants.js';
 
-// Groups repeated flavor picks ("Chocolate Chip" chosen for 2 of a Two
-// Dozen reward's dozens) into a single "Chocolate Chip ×2" entry rather than
-// listing the same name twice.
-function summarizeFlavors(flavors) {
+// How a redeemed reward's flavors read on the order: just the name when the
+// whole reward is one flavor ("Oatmeal"), otherwise the cookie count of each
+// ("6 Chocolate Chip, 6 Snickerdoodle"). `flavors` has one entry per portion of
+// the reward and `cookiesPerPortion` is that portion's size (entry.slotCookies),
+// so a flavor picked for several portions is added up into one entry.
+function summarizeFlavors(flavors, cookiesPerPortion) {
   const counts = new Map();
   for (const flavor of flavors) counts.set(flavor, (counts.get(flavor) || 0) + 1);
-  return [...counts.entries()].map(([flavor, n]) => (n > 1 ? `${flavor} ×${n}` : flavor)).join(', ');
+  if (counts.size === 1) return flavors[0];
+  return [...counts.entries()].map(([flavor, n]) => `${n * cookiesPerPortion} ${flavor}`).join(', ');
 }
 
 function validateContact(contact) {
@@ -395,14 +399,34 @@ async function resolveCheckoutRequest(req) {
   // otherwise still have orders attributed to, and earn/redeem points on, a
   // customerId that no longer resolves to anyone. Downgrade silently to
   // guest checkout rather than erroring.
-  if (req.user && !(await getCustomerById(req.user.customerId))) {
-    req.user = null;
+  let customer = null;
+  if (req.user) {
+    customer = await getCustomerById(req.user.customerId);
+    if (!customer) req.user = null;
   }
 
   const contactError = validateContact(req.body.contact);
   if (contactError) return { error: contactError, status: 400 };
   const fulfillmentError = validateFulfillment(req.body.fulfillment);
   if (fulfillmentError) return { error: fulfillmentError, status: 400 };
+
+  // A pickup order can only be placed by someone who ticked "I understand" on
+  // the pickup notice (see pickup/notice.js). The browser sends the version of
+  // the notice it showed; anything else — missing, or a version this server
+  // doesn't currently require — is refused, which is also what stops a stale
+  // browser tab from agreeing to wording it never saw. It is checked here, in
+  // the code shared by every checkout request, so the payment can't even be
+  // started without it. The agreement is saved on the order (pickupNotice), not
+  // inside `fulfillment`: staff confirming a pickup time replaces that whole
+  // object (see confirm-pickup), which would erase it.
+  const isPickup = req.body.fulfillment.method === 'pickup';
+  if (isPickup && req.body.fulfillment.acknowledgedPickupNotice !== PICKUP_NOTICE_VERSION) {
+    return {
+      error:
+        "Please read and agree to the pickup notice before placing your order. If you don't see it, refresh the page and try again.",
+      status: 400,
+    };
+  }
 
   const contact = {
     firstName: String(req.body.contact.firstName).trim(),
@@ -463,9 +487,18 @@ async function resolveCheckoutRequest(req) {
       if (!entry) {
         return { error: `Unknown reward: ${key}`, status: 400 };
       }
-      if (!Array.isArray(flavors) || flavors.length !== entry.qty) {
+      // One flavor per portion of the reward (see flavorSlots in
+      // rewards/catalog.js). A portion is always at least six cookies, so
+      // checking the count of picks is what enforces "at least six of each
+      // flavor" and "no more flavors than the reward has portions" — there is
+      // no way to express a flavor with fewer than six, however the request is
+      // crafted.
+      if (!Array.isArray(flavors) || flavors.length !== entry.flavorSlots) {
         return {
-          error: `${entry.label} requires exactly ${entry.qty} flavor selection${entry.qty > 1 ? 's' : ''}.`,
+          error:
+            entry.flavorSlots === 1
+              ? `${entry.label} needs exactly 1 flavor.`
+              : `${entry.label} needs its ${entry.cookies} cookies divided into ${entry.flavorSlots} portions of ${entry.slotCookies}, each with a flavor.`,
           status: 400,
         };
       }
@@ -513,36 +546,32 @@ async function resolveCheckoutRequest(req) {
       {
         id: `reward-${entry.key}`,
         type: entry.type,
-        flavor: `${entry.label}: ${summarizeFlavors(flavors)}`,
+        flavor: `${entry.label}: ${summarizeFlavors(flavors, entry.slotCookies)}`,
         sizeLabel: entry.sizeLabel,
         price: 0,
-        // Real menu-equivalent value, not the $0 actually charged — lets a
-        // fully-redeemed order still count toward the minimum-order-value
-        // checkout rule below instead of always reading as $0.
-        value: entry.value,
+        // Marks the line as a redeemed reward, which exempts its order from the
+        // minimum-order rule below. pointsCost is saved with the order item (see
+        // Order.toJSON) so receipts and order screens can say what it cost in
+        // points even if reward prices change later.
+        isReward: true,
+        pointsCost: entry.points,
         // Real per-flavor answer now that a flavor is actually chosen, rather
         // than entry.is_temperature_controlled's conservative per-type guess.
         is_temperature_controlled: flavors.some((f) => TEMPERATURE_CONTROLLED_FLAVORS.has(f)),
-        // entry.qty is baked into the reward's identity (e.g. "Three Dozen"
-        // is 3 full_dozen units) rather than the line-item qty below, which
-        // stays 1 — so physicalCookieCount needs this precomputed total
-        // rather than deriving it from a single is_full_dozen-style flag the
-        // way a real menu item would.
-        physicalCookieUnits: UNITS_PER_SIZE[entry.size] * entry.qty,
+        // The reward's size is baked into its identity (e.g. "Three Dozen"
+        // is 36 cookies) rather than the line-item qty below, which stays 1
+        // — so physicalCookieCount needs this precomputed total rather than
+        // deriving it from a single is_full_dozen-style flag the way a real
+        // menu item would.
+        physicalCookieUnits: entry.cookies,
       },
       1
     );
   }
 
-  // valueTotal, not total — a redeemed reward counts at its real menu value
-  // here, not the $0 it actually charges, so an order paid for entirely in
-  // points can still clear the minimum instead of always reading as $0.
-  if (cart.orders.some((order) => order.valueTotal < MIN_ORDER_SUBTOTAL)) {
-    return {
-      error: `Each order must have a value of at least $${MIN_ORDER_SUBTOTAL.toFixed(2)}.`,
-      status: 400,
-    };
-  }
+  // Orders that redeem a reward are exempt from the minimum (see rules.js).
+  const minimumError = minimumOrderError(cart);
+  if (minimumError) return { error: minimumError, status: 400 };
 
   if (fulfillment.method === 'shipping' && cart.orders.some((order) => order.requiresPickup)) {
     return {
@@ -557,7 +586,22 @@ async function resolveCheckoutRequest(req) {
   );
   if (noticeError) return { error: noticeError, status: 400 };
 
-  return { contact, fulfillment, cart, resolvedRedemptions, totalPointsRequired };
+  // The balance is returned (not checked here) because the callers differ: a
+  // payment must check it BEFORE anything is charged (see the two payment
+  // endpoints below), while a points-only checkout leaves the decision to its
+  // all-or-nothing transaction, so that a repeated request reads as "already
+  // placed" rather than "not enough points".
+  return {
+    contact,
+    fulfillment,
+    cart,
+    resolvedRedemptions,
+    totalPointsRequired,
+    rewardsBalance: customer?.rewards,
+    // Which notice a pickup customer agreed to (undefined for shipping); the
+    // finalize step saves it on each order.
+    pickupNoticeVersion: isPickup ? PICKUP_NOTICE_VERSION : undefined,
+  };
 }
 
 // The actual dollar amount this checkout must charge — order.total (items
@@ -641,6 +685,39 @@ async function refundAndFail(res, paymentIntentId, status, message, { savedOrder
   res.status(status).json({ error: message });
 }
 
+// The customer's receipt and staff's new-order notification, for a checkout
+// whose orders have just been saved (paid or points-only). A receipt is a
+// nice-to-have, not part of the transaction itself — a failed send (or SES
+// being unconfigured entirely, e.g. local dev) must never fail an otherwise-
+// successful checkout. Built once so a retry re-sends the exact same content
+// rather than re-deriving it. Never throws.
+async function sendOrderEmails({ contact, fulfillment, orders }) {
+  try {
+    const receipt = buildReceiptEmail({ contact, fulfillment, orders });
+    try {
+      await sendEmail(contact.email, receipt.subject, receipt.text, receipt.html);
+    } catch (err) {
+      console.error('Failed to send receipt email:', err);
+      enqueueEmailRetry(contact.email, receipt.subject, receipt.text, receipt.html);
+    }
+
+    // Same best-effort treatment for staff's new-order notification — a
+    // failed/unconfigured send here must not fail the checkout either.
+    const staffTo = staffRecipients();
+    if (staffTo.length > 0) {
+      const staffEmail = buildStaffNewOrderEmail({ contact, fulfillment, orders });
+      try {
+        await sendEmail(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
+      } catch (err) {
+        console.error('Failed to send staff new-order notification:', err);
+        enqueueEmailRetry(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
+      }
+    }
+  } catch (err) {
+    console.error("Couldn't build the order emails:", err);
+  }
+}
+
 // Computes the trustworthy total for the cart described in the request body
 // and creates a Stripe PaymentIntent for it. Called before the customer ever
 // sees a card field — the frontend renders Stripe's Payment Element against
@@ -651,9 +728,22 @@ app.post('/api/checkout/create-payment-intent', optionalAuth, async (req, res) =
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
-  const { contact, cart, fulfillment } = resolved;
+  const { contact, cart, fulfillment, totalPointsRequired, rewardsBalance } = resolved;
+  // Before anything is created: the balance must cover every reward in the
+  // cart, so the customer hears it now, not after entering card details.
+  const balanceError = rewardsBalanceError(totalPointsRequired, rewardsBalance);
+  if (balanceError) {
+    return res.status(400).json({ error: balanceError });
+  }
   const amount = Math.round(computeGrandTotal(cart, fulfillment) * 100);
   if (amount <= 0) {
+    // Everything in this checkout is redeemed with points, so there is nothing
+    // for Stripe to charge: tell the browser to skip the payment step and go
+    // straight to /api/checkout (see placeFreeOrders). Only a checkout that
+    // really does redeem rewards can be free.
+    if (totalPointsRequired > 0) {
+      return res.json({ amount: 0, free: true });
+    }
     return res.status(400).json({ error: 'Nothing to charge.' });
   }
 
@@ -744,7 +834,48 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
   if (resolved.error) {
     return res.status(resolved.status).json({ error: resolved.error });
   }
-  const { contact, fulfillment, cart, totalPointsRequired, resolvedRedemptions } = resolved;
+  const { contact, fulfillment, cart, totalPointsRequired, resolvedRedemptions, pickupNoticeVersion } = resolved;
+
+  // A checkout that costs nothing because it is paid for entirely in reward
+  // points has no Stripe payment to verify. It is its own path: the server has
+  // just computed that the amount is exactly $0 itself (never trusting the
+  // client), and the orders plus the points deduction are saved atomically. Any
+  // paymentIntentId in the request is ignored — nothing is charged.
+  if (Math.round(computeGrandTotal(cart, fulfillment) * 100) === 0) {
+    const placed = await placeFreeOrders({
+      user: req.user,
+      contact,
+      fulfillment,
+      cart,
+      resolvedRedemptions,
+      totalPointsRequired,
+      checkoutKey: req.body.checkoutKey,
+      pickupNoticeVersion,
+    });
+    if (placed.error) {
+      return res.status(placed.status).json({ error: placed.error });
+    }
+    await sendOrderEmails({ contact, fulfillment, orders: placed.orders });
+    // Read back rather than computed, so the balance shown is the real one.
+    const customer = await getCustomerById(req.user.customerId).catch(() => null);
+    return res.json({
+      orders: placed.orders,
+      grandTotal: 0,
+      rewards: { spent: totalPointsRequired, earned: 0, ...(customer && { balance: customer.rewards }) },
+      message: 'Order placed!',
+    });
+  }
+
+  // A paid checkout may only redeem rewards the customer can afford, and that
+  // must be known BEFORE Stripe is consulted: once a card has been charged there
+  // is no good way to take back a reward that couldn't be paid for, so "sort the
+  // points out afterwards" would hand out free rewards. (Spending the points
+  // below is still atomic, and settles a race between two simultaneous
+  // checkouts; this is what stops a request for rewards it can't afford.)
+  const balanceError = rewardsBalanceError(totalPointsRequired, resolved.rewardsBalance);
+  if (balanceError) {
+    return res.status(400).json({ error: balanceError });
+  }
 
   // Every checkout must be backed by a real, already-succeeded Stripe
   // payment for the exact amount this request computes — never trust a
@@ -841,6 +972,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     for (const [index, order] of cart.orders.entries()) {
       const { items, total: subtotal } = order.toJSON();
       const shippingFee = fulfillment.method === 'shipping' ? order.shippingFee : 0;
+      const createdAt = new Date().toISOString();
       const record = {
         orderId: deterministicOrderId(paymentIntentId, index),
         status: 'placed',
@@ -858,7 +990,11 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
           status: 'succeeded',
           ...(paymentMethod && { method: paymentMethod }),
         },
-        createdAt: new Date().toISOString(),
+        createdAt,
+        // The agreement to the pickup notice that came with this order (see
+        // pickup/notice.js): the notice's version, and the server time the order
+        // was saved with it attached — the same instant as createdAt.
+        ...(pickupNoticeVersion && { pickupNotice: { version: pickupNoticeVersion, acknowledgedAt: createdAt } }),
         ...(req.user && {
           customerId: req.user.customerId,
           pointsEarned: earnedShares[index],
@@ -918,34 +1054,7 @@ app.post('/api/checkout', optionalAuth, async (req, res) => {
     }
   }
 
-  // A receipt is a nice-to-have, not part of the transaction itself — a
-  // failed send (or SES being unconfigured entirely, e.g. local dev)
-  // must never fail an otherwise-successful checkout. Built once so a
-  // retry re-sends the exact same content rather than re-deriving it.
-  try {
-    const receipt = buildReceiptEmail({ contact, fulfillment, orders: persistedOrders });
-    try {
-      await sendEmail(contact.email, receipt.subject, receipt.text, receipt.html);
-    } catch (err) {
-      console.error('Failed to send receipt email:', err);
-      enqueueEmailRetry(contact.email, receipt.subject, receipt.text, receipt.html);
-    }
-
-    // Same best-effort treatment for staff's new-order notification — a
-    // failed/unconfigured send here must not fail the checkout either.
-    const staffTo = staffRecipients();
-    if (staffTo.length > 0) {
-      const staffEmail = buildStaffNewOrderEmail({ contact, fulfillment, orders: persistedOrders });
-      try {
-        await sendEmail(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
-      } catch (err) {
-        console.error('Failed to send staff new-order notification:', err);
-        enqueueEmailRetry(staffTo, staffEmail.subject, staffEmail.text, staffEmail.html);
-      }
-    }
-  } catch (err) {
-    console.error("Couldn't build the order emails:", err);
-  }
+  await sendOrderEmails({ contact, fulfillment, orders: persistedOrders });
 
   // Signed-in customers earn 1 point per $1 spent. Guests earn nothing —
   // they have no Customers row at all. If the points update fails after
@@ -1022,20 +1131,28 @@ app.get('/api/orders/active', requireAuth, requireActiveCustomer, requireStaff, 
 const RECENT_ORDERS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // The one terminal timestamp that applies to a given order, regardless of
-// which terminal status it ended at.
+// which terminal status it ended at. For an order refunded after pickup (both
+// completedAt and canceledAt exist) it is the later one — the refund — so a
+// refund staff just issued shows up under Recent Orders even if the pickup was
+// more than 7 days ago.
 function terminalTimestamp(order) {
-  return order.completedAt || order.canceledAt;
+  return [order.completedAt, order.canceledAt].filter(Boolean).sort().at(-1);
+}
+
+// Whether an order still counts as "recent": it ended (picked up, delivered or
+// canceled) within the window. This single rule decides both what the Recent
+// Orders list shows and which picked-up orders can still be refunded from the
+// app (see /api/orders/:id/refund), so the two can never disagree.
+function isWithinRecentWindow(order) {
+  const t = terminalTimestamp(order);
+  return Boolean(t) && new Date(t).getTime() >= Date.now() - RECENT_ORDERS_WINDOW_MS;
 }
 
 app.get('/api/orders/recent', requireAuth, requireActiveCustomer, requireStaff, async (req, res) => {
   try {
     const [completed, canceled] = await Promise.all([queryCompletedOrders(), queryCanceledOrders()]);
-    const cutoff = Date.now() - RECENT_ORDERS_WINDOW_MS;
     const orders = [...completed, ...canceled]
-      .filter((order) => {
-        const t = terminalTimestamp(order);
-        return t && new Date(t).getTime() >= cutoff;
-      })
+      .filter(isWithinRecentWindow)
       .sort((a, b) => terminalTimestamp(b).localeCompare(terminalTimestamp(a)));
     res.json({ orders });
   } catch (err) {
@@ -1569,6 +1686,111 @@ app.post(
     } catch (err) {
       console.error('Failed to cancel order:', err);
       res.status(500).json({ error: 'Failed to cancel order.' });
+    }
+  }
+);
+
+// Refunding an order that was already picked up or delivered (marked completed)
+// — the cancel endpoint above refuses those, but a customer can still be owed
+// their money back after the fact (the wrong thing handed over, a quality
+// complaint, or an order marked picked up by mistake). Only while the order is
+// still "recent" (see isWithinRecentWindow: the same 7 days Recent Orders shows);
+// older than that, it's refused. Same safety as a cancel:
+//  - The Stripe refund goes first. If Stripe refuses it, the order is left exactly
+//    as it was and staff are told why, so an order is never shown as refunded
+//    while the customer is still charged. It is idempotent per order, so a retry
+//    (or a double-click) can't pay the customer twice.
+//  - The order's own total (shipping included) is what goes back, to the card it
+//    was paid with — a partial refund of the charge, since one checkout can hold
+//    several orders.
+//  - Reward points follow the money, exactly as for a cancel with refund: what the
+//    order earned is taken back and what it spent is returned, in the same
+//    transaction that marks the order, so they move once even if two requests race.
+// The order becomes 'canceled' with refundedAfterCompletion (see cancelOrderRecord):
+// that keeps it out of Sales and everything else that already treats canceled
+// orders as "never happened", while screens say "Refunded" and completedAt keeps
+// the history of the pickup. A points-only order (nothing paid) can be "refunded"
+// too: its points come back. An order with nothing to give back is refused.
+app.post(
+  '/api/orders/:id/refund',
+  requireAuth,
+  requireActiveCustomer,
+  requireStaff,
+  async (req, res) => {
+    try {
+      const order = await getOrderById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found.' });
+      }
+      if (order.status === 'canceled') {
+        return res.status(400).json({ error: 'This order has already been canceled or refunded.' });
+      }
+      if (order.status !== 'completed') {
+        return res.status(400).json({
+          error: "Only an order that's been picked up or delivered can be refunded here. Cancel an active order from Active Orders instead.",
+        });
+      }
+      // Only while the order is still under Recent Orders. After that it is
+      // settled history: a late refund is a decision for the Stripe Dashboard,
+      // not a button in the app. Checked here (not just by hiding the button) so
+      // a page left open past the cutoff, or a crafted request, gets the same answer.
+      if (!isWithinRecentWindow(order)) {
+        return res.status(400).json({
+          error: `This order was ${order.fulfillment?.method === 'shipping' ? 'delivered' : 'picked up'} more than ${RECENT_ORDERS_WINDOW_MS / 86400000} days ago, so it can no longer be refunded here. If the customer is still owed money, refund the payment in the Stripe Dashboard.`,
+        });
+      }
+
+      const hasPayment = Boolean(order.payment?.paymentIntentId) && orderRefundCents(order) > 0;
+      const points = pointsToReverse(order);
+      if (!hasPayment && points.spent === 0) {
+        return res.status(400).json({ error: 'There is nothing to refund on this order.' });
+      }
+
+      let refund = null;
+      if (hasPayment) {
+        try {
+          const result = await refundOrderPayment(order);
+          if (result.refunded) refund = result.refund;
+        } catch (err) {
+          console.error(`Failed to refund completed order ${order.orderId}:`, err);
+          return res.status(502).json({
+            error: `The payment couldn't be refunded (${err.message}), so the order was left as it was. Try again, or refund it yourself in Stripe.`,
+          });
+        }
+      }
+
+      const canceledAt = new Date().toISOString();
+      const result = await cancelOrderRecord(order, { canceledAt, refund, points, afterCompletion: true });
+      if (!result.canceled) {
+        return res.status(400).json({ error: 'This order has already been refunded or is no longer completed.' });
+      }
+      const { pointsAdjusted } = result;
+
+      const email = buildRefundEmail({
+        contact: order.contact,
+        order,
+        refund,
+        pointsReturned: pointsAdjusted?.spent ?? 0,
+      });
+      try {
+        await sendEmail(order.contact.email, email.subject, email.text, email.html);
+      } catch (err) {
+        console.error('Failed to send refund email:', err);
+        enqueueEmailRetry(order.contact.email, email.subject, email.text, email.html);
+      }
+
+      res.json({
+        status: 'canceled',
+        canceledAt,
+        refundedAfterCompletion: true,
+        ...(refund && { refund }),
+        ...(pointsAdjusted && {
+          pointsAdjustment: { earnedTakenBack: pointsAdjusted.earned, spentReturned: pointsAdjusted.spent },
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to refund order:', err);
+      res.status(500).json({ error: 'Failed to refund order.' });
     }
   }
 );

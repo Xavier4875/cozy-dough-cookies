@@ -1,0 +1,12 @@
+.reward-tag {
+  display: block;
+  width: fit-content;
+  margin-top: 0.15rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: #f6ead7;
+  color: #8a5a1c;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+}

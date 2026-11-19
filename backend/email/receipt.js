@@ -20,8 +20,12 @@ export function buildReceiptEmail({ contact, fulfillment, orders }) {
 
   if (fulfillment.method === 'pickup') {
     const pickupLine = `Requested pickup: ${formatPickupDateTime(fulfillment.pickupDate, fulfillment.pickupTime)}`;
+    // Same message as the notice shown at checkout (PickupScheduleModal.jsx) and
+    // the Pickup rules on the Policy page — keep the three in step. The time is
+    // confirmed by a separate email (buildPickupTimeEmail), and that is what the
+    // customer waits for; not for the order to be "ready".
     const noteLine =
-      "This time is a request, not a confirmation — please wait to hear from us that your order is ready before coming by.";
+      "Your pickup time is a request. We'll email you as soon as it's confirmed, so please wait for that confirmation before coming to pick up your order.";
     const addressLine = pickupAddressLine();
     textLines.push(pickupLine, noteLine, addressLine);
     headerHtml.push(escapeHtml(pickupLine), escapeHtml(noteLine), escapeHtml(addressLine));

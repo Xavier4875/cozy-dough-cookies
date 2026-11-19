@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { US_STATES, ZIP_RE, sizeLabelWithMarker } from '../constants.js';
+import RewardTag from './RewardTag.jsx';
+import { US_STATES, ZIP_RE, sizeLabelWithMarker, itemPriceText } from '../constants.js';
 import './ShippingAddressModal.css';
 
 function formatAddress({ line1, line2, city, state, zip }) {
@@ -19,6 +20,10 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
   // null until then, and also null when USPS couldn't be reached at all (the
   // non-blocking path), in which case the address is used exactly as typed.
   const [standardizedAddress, setStandardizedAddress] = useState(null);
+  // True when USPS didn't confirm the address (couldn't be reached, quota, not
+  // set up, or our own backend unreachable). Never blocks — the confirm step
+  // just tells the customer to double-check it themselves.
+  const [couldNotVerify, setCouldNotVerify] = useState(false);
   const [isStateListOpen, setIsStateListOpen] = useState(false);
   const stateFieldRef = useRef(null);
 
@@ -46,6 +51,7 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
     setZip('');
     setFormError('');
     setStandardizedAddress(null);
+    setCouldNotVerify(false);
     setIsStateListOpen(false);
   }
 
@@ -95,10 +101,12 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
       // couldn't be checked at all, so never block on that — proceed with
       // the address exactly as typed, same non-blocking rule checkout uses.
       setStandardizedAddress(data.verified === true ? data.standardized : null);
+      setCouldNotVerify(data.verified !== true);
       setStep('confirm');
     } catch {
       // Network failure reaching our own backend — same non-blocking rule.
       setStandardizedAddress(null);
+      setCouldNotVerify(true);
       setStep('confirm');
     } finally {
       setIsValidating(false);
@@ -195,8 +203,11 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
                 <ul className="cart-list">
                   {order.items.map((item) => (
                     <li key={item.cookie.id}>
-                      <span>{item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)}) × {item.qty}</span>
-                      <span>${(item.cookie.price * item.qty).toFixed(2)}</span>
+                      <span>
+                        {item.cookie.flavor} ({sizeLabelWithMarker(item.cookie)}) × {item.qty}
+                        {item.cookie.isReward && <RewardTag />}
+                      </span>
+                      <span>{itemPriceText(item.cookie, item.qty)}</span>
                     </li>
                   ))}
                 </ul>
@@ -206,6 +217,12 @@ function ShippingAddressModal({ isOpen, orders = [], onCancel, onConfirm }) {
             ))}
             <p className="cart-total">Total: ${grandTotal.toFixed(2)}</p>
             <p className="shipping-address-subtitle">Shipping to: {formatAddress(address)}</p>
+            {couldNotVerify && (
+              <p className="shipping-address-unverified" role="status">
+                We couldn&apos;t check this address with USPS right now, so we&apos;ll use it exactly as you typed it.
+                Please make sure it&apos;s correct before placing your order.
+              </p>
+            )}
             <div className="shipping-address-actions">
               <button type="button" className="shipping-address-cancel-btn" onClick={() => setStep('address')}>Back</button>
               <button type="button" className="checkout-btn" onClick={() => onConfirm(address)}>
