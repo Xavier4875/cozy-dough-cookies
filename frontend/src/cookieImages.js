@@ -24,9 +24,30 @@ const FLAVOR_TO_FILENAME = {
   'Cozy Rolls': 'cozy-rolls.jpg',
   // One photo shared by all three Cozy Dough Bucket cards (regular, gluten-free, sugar-free).
   'Cozy Dough Bucket': 'cozy-dough-bucket.jpg',
+  // Seasonal. Until a file with this name is added to src/cookie-images/ the
+  // Gobble Bucket card shows the placeholder; any of .jpg/.jpeg/.png/.webp works.
+  'Gobble Bucket': 'gobble-bucket.jpg',
 };
+
+// Other extensions tried when the listed file isn't there, so a photo saved as
+// .png (or .webp) where the list above says .jpg still shows up instead of
+// silently falling back to the placeholder.
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+
+// `imageMap` is the glob result above (a parameter so it can be tested with a
+// made-up one).
+export function findImage(imageMap, filename) {
+  const exact = imageMap[`./cookie-images/${filename}`];
+  if (exact) return exact;
+  const base = filename.replace(/\.[^.]+$/, '');
+  for (const extension of IMAGE_EXTENSIONS) {
+    const alternative = imageMap[`./cookie-images/${base}.${extension}`];
+    if (alternative) return alternative;
+  }
+  return undefined;
+}
 
 export function cookieImageFor(flavor) {
   const filename = FLAVOR_TO_FILENAME[flavor];
-  return filename ? images[`./cookie-images/${filename}`] : undefined;
+  return filename ? findImage(images, filename) : undefined;
 }

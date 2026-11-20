@@ -20,7 +20,9 @@ const COOKIE_ALLERGENS = [
   ['Oatmeal Cream Pies', 'Wheat, milk, eggs'],
   ['Cozy Rolls', 'Wheat, milk'],
   ['Cozy Maple Sugar Cookie Dippers', 'Wheat, milk, eggs'],
-  ['Thanksgiving Gobble Buckets', 'Allergens vary depending on selected flavors'],
+  // A fixed mix (chocolate chip, monster and signature sugar cookies), so this is the
+  // combined list of those three rows above — nothing varies by selection.
+  ['Gobble Bucket (chocolate chip, monster & sugar cookies)', 'Wheat, milk, eggs, soy'],
 ];
 
 function Nutrition() {

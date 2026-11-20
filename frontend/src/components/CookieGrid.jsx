@@ -179,8 +179,11 @@ export function CookieCard({
           {dietaryMarker(p.type) && ` (${dietaryMarker(p.type)})`}
         </p>
         {showPrice && <p className="cookie-price">${p.price.toFixed(2)}</p>}
-        {p.is_temperature_controlled && (
+        {p.menuDescription && <p className="cookie-description">{p.menuDescription}</p>}
+        {p.is_temperature_controlled ? (
           <p className="cookie-temp-note">Temperature Controlled: Pickup Required</p>
+        ) : (
+          p.is_pickup_only && <p className="cookie-temp-note">Pickup Only</p>
         )}
         <div className="cookie-stepper">
           <button

@@ -16,7 +16,8 @@ const SIZE_KEYS = SIZES.map((size) => size.key);
 
 // Everything below the page header on the menu, shared by the desktop Menu
 // and the phone MobileMenu (which differ only in the page's own layout):
-// the Regular / Gluten-Free / Sugar-Free tabs and, under each, the products.
+// the Seasonal (when something is in season) / Regular / Gluten-Free /
+// Sugar-Free tabs and, under each, the products.
 // `sizeNavClassName` is the one thing that differs — the class the section
 // nav bar carries in each layout.
 //
@@ -26,7 +27,14 @@ const SIZE_KEYS = SIZES.map((size) => size.key);
 // other type just gets a section of cards.
 function MenuContent({ sizeNavClassName = 'size-nav' }) {
   const { products } = useCart();
-  const [activeCategory, setActiveCategory] = useState('regular');
+  // The Seasonal tab only exists while there is a seasonal product. It sits right
+  // after Regular, and Regular is always the tab the menu opens on. `chosenCategory`
+  // is what the customer clicked (null until they do); a choice that no longer
+  // exists falls back to Regular.
+  const hasSeasonal = products.some((p) => menuCategoryOf(p.type) === 'seasonal');
+  const categories = MENU_CATEGORIES.filter((category) => category.key !== 'seasonal' || hasSeasonal);
+  const [chosenCategory, setChosenCategory] = useState(null);
+  const activeCategory = categories.some((c) => c.key === chosenCategory) ? chosenCategory : 'regular';
   const sectionRefs = useRef({});
   const sizeNavRef = useRef(null);
 
@@ -67,21 +75,25 @@ function MenuContent({ sizeNavClassName = 'size-nav' }) {
   return (
     <>
       <div className="menu-category-tabs">
-        {MENU_CATEGORIES.map((category) => (
+        {categories.map((category) => (
           <button
             key={category.key}
             className={
               'menu-category-tab' +
               (activeCategory === category.key ? ' menu-category-tab--active' : '')
             }
-            onClick={() => setActiveCategory(category.key)}
+            onClick={() => setChosenCategory(category.key)}
           >
             {category.label}
           </button>
         ))}
       </div>
 
-      {activeCategory === 'regular' ? (
+      {activeCategory === 'seasonal' ? (
+        // Limited-time items: just their cards (each type's own price shows on the
+        // card), with no size sections or notes around them.
+        <ProductArea products={products.filter((p) => menuCategoryOf(p.type) === 'seasonal')} />
+      ) : activeCategory === 'regular' ? (
         <>
           <div className={sizeNavClassName} ref={sizeNavRef}>
             {SIZES.map((size) => (

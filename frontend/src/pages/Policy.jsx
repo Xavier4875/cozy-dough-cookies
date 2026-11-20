@@ -59,7 +59,10 @@ function Policy() {
             Gluten-free and sugar-free cookies are sold by the full batch only (about 29 cookies)
             &mdash; we can&apos;t split a batch or sell them individually.
           </li>
-          <li>Temperature-controlled items (marked on the menu) are pickup only &mdash; they can&apos;t be shipped.</li>
+          <li>
+            Temperature-controlled items and items marked &ldquo;Pickup Only&rdquo; on the menu
+            (such as the seasonal Gobble Bucket) are pickup only &mdash; they can&apos;t be shipped.
+          </li>
           <li>Your pickup address is included in your order confirmation email.</li>
           <li>
             The pickup time you choose at checkout is a request. We&apos;ll email you as soon as
@@ -83,7 +86,10 @@ function Policy() {
         <ul>
           <li>We ship via USPS to all 50 states, D.C., and U.S. territories.</li>
           <li>Flat shipping fee: $24 for orders up to 36 cookies, $30 for larger orders.</li>
-          <li>Temperature-controlled items can&apos;t be shipped &mdash; pickup only.</li>
+          <li>
+            Temperature-controlled items and items marked &ldquo;Pickup Only&rdquo; can&apos;t be
+            shipped &mdash; pickup only.
+          </li>
         </ul>
       </section>
 

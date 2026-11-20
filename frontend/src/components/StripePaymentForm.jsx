@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { buildBillingDetails } from '../stripe/billingDetails.js';
+import { PAYMENT_ELEMENT_OPTIONS } from '../stripe/paymentElementOptions.js';
 
 // Rendered inside an <Elements> provider (see CheckoutForm.jsx) — useStripe/
 // useElements only work as descendants of that provider, which is why this
 // can't just be inlined into CheckoutForm alongside the clientSecret fetch.
-function StripePaymentForm({ amount, onSuccess, onBack, submitting }) {
+// `contact` is who is paying ({ firstName, lastName, email }), from the checkout step.
+function StripePaymentForm({ amount, contact, onSuccess, onBack, submitting }) {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState('');
@@ -14,14 +17,23 @@ function StripePaymentForm({ amount, onSuccess, onBack, submitting }) {
   // (the overwhelming case here) — Stripe only falls back to a full-page
   // redirect for the rare payment method or 3D Secure flow that genuinely
   // needs one.
+  //
+  // The customer's name and email go along as billing details so Stripe's fraud
+  // check has something to go on (see stripe/billingDetails.js). Anything the
+  // payment form collects itself overrides these, so a card, Apple Pay and Google
+  // Pay all behave exactly as before; this only adds information.
   async function handleSubmit(e) {
     e.preventDefault();
     if (!stripe || !elements) return;
     setError('');
     setPaying(true);
+    const billingDetails = buildBillingDetails(contact);
     const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: 'if_required',
+      ...(Object.keys(billingDetails).length > 0 && {
+        confirmParams: { payment_method_data: { billing_details: billingDetails } },
+      }),
     });
     if (confirmError) {
       setError(confirmError.message || 'Payment failed. Please try again.');
@@ -41,7 +53,7 @@ function StripePaymentForm({ amount, onSuccess, onBack, submitting }) {
       <h3 className="cart-section-title">Payment</h3>
       <p className="checkout-form-note">Total: ${(amount / 100).toFixed(2)}</p>
 
-      <PaymentElement />
+      <PaymentElement options={PAYMENT_ELEMENT_OPTIONS} />
 
       {error && <p className="checkout-error">{error}</p>}
 

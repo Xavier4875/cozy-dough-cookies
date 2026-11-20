@@ -126,8 +126,12 @@ export const COOKIE_SIZES = [
 // only whole batches (about 29 cookies each) plus their own Cozy Dough
 // Bucket — so they're driven by DIETARY_CATEGORIES instead, keyed the same
 // way as MENU_CATEGORIES' non-'regular' keys.
+// Regular is first and is the tab the menu opens on. 'seasonal' sits right after it,
+// but MenuContent only shows that tab while at least one seasonal product exists, so
+// out of season the menu looks exactly as it did before.
 export const MENU_CATEGORIES = [
   { key: 'regular', label: 'Regular' },
+  { key: 'seasonal', label: 'Seasonal' },
   { key: 'gluten_free', label: 'Gluten-Free' },
   { key: 'sugar_free', label: 'Sugar-Free' },
 ];
@@ -159,10 +163,12 @@ export const DIETARY_CATEGORIES = {
 // Which top-level menu tab (a MENU_CATEGORIES key) a product type belongs to.
 // Derived from the type name — the same gluten_free_* / sugar_free_* prefix
 // convention dietaryMarker below relies on — so a new type in either dietary
-// category lands on its tab without being listed anywhere here.
+// category lands on its tab without being listed anywhere here. Types named
+// seasonal_* (see backend/models/Cookie.js) land on the Seasonal tab the same way.
 export function menuCategoryOf(type) {
   if (type?.startsWith('gluten_free')) return 'gluten_free';
   if (type?.startsWith('sugar_free')) return 'sugar_free';
+  if (type?.startsWith('seasonal_')) return 'seasonal';
   return 'regular';
 }
 

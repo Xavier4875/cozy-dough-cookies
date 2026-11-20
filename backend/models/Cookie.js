@@ -26,12 +26,12 @@ const BATCH_PRICE_SPECIAL = 95.0;
 
 const TYPES = {
   standard: {
-    prices: { single: 2.0, half_dozen: 12.0, full_dozen: 24.0 },
+    prices: { single: 2.5, half_dozen: 12.0, full_dozen: 24.0 },
     flavors: STANDARD_FLAVORS,
     sizes: ['single', 'half_dozen', 'full_dozen'],
   },
   special: {
-    prices: { single: 3.0, half_dozen: 18.0, full_dozen: 36.0 },
+    prices: { single: 3.5, half_dozen: 18.0, full_dozen: 36.0 },
     flavors: SPECIAL_FLAVORS,
     sizes: ['single', 'half_dozen', 'full_dozen'],
   },
@@ -100,6 +100,34 @@ const TYPES = {
     displayName: 'Cozy Dough Bucket',
     menuSection: 'buckets',
   },
+  // SEASONAL items: limited-time products on the menu's "Seasonal" tab, which sits
+  // right after Regular (the default tab) while at least one of these exists. Any
+  // type whose name starts with `seasonal_` lands on that tab by itself (see
+  // menuCategoryOf in frontend/src/constants.js), and the tab disappears when the
+  // last one is removed — so adding a seasonal item is one entry here, and ending
+  // the season is deleting it and redeploying. Each is a single fixed product
+  // (size 'item'): `prices.item` is its price, `itemLabel` is the detail shown next
+  // to its name in the cart, receipts and staff screens, and `description` is the
+  // line under its name on the menu.
+  //
+  // Gobble Bucket: a bucket with a FIXED mix of mini chocolate chip, monster and
+  // sugar cookies — nothing for the customer to choose, so it is an ordinary menu card
+  // (not the flavor-picker card the Cozy Dough Buckets use). Sugar cookies are
+  // sold only inside it. It does NOT need refrigeration, but the shop doesn't ship
+  // buckets, so it is `pickupOnly` (an order containing it can't be shipped; the
+  // card says "Pickup Only", not "Temperature Controlled"). It stays out of cookie
+  // counts (no physicalCookieUnits): it is never shipped, so no box size depends
+  // on it.
+  seasonal_gobble_bucket: {
+    prices: { item: 40.0 },
+    flavors: ['Gobble Bucket'],
+    sizes: ['item'],
+    itemLabel: 'Chocolate Chip, Monster & Sugar',
+    description: 'A mix of mini chocolate chip, monster, and sugar cookies.',
+    pickupOnly: true,
+    // Shows its own price on the card, like Cozy Rolls, instead of a tier heading.
+    priceOnCard: true,
+  },
   // Gluten-free/sugar-free: same flavor lineup as standard/special, no
   // premium tier, and only ever sold as a whole batch. The batch-only `sizes`
   // here is what the PRODUCTS catalog in index.js is built from, and checkout
@@ -154,6 +182,9 @@ const SIZE_LABELS = {
   // Only a validity key — a bucket's displayed size is its flavor (see the
   // sizeLabel getter), so this text is never shown.
   bucket: 'Bucket',
+  // Only a validity key too — a fixed (seasonal) item's displayed detail is its
+  // type's itemLabel (see the sizeLabel getter).
+  item: 'Item',
 };
 
 // These flavors contain dairy/fresh fillings that need refrigeration, so they
@@ -208,6 +239,13 @@ export class Cookie {
     this.is_in_buckets = typeInfo.menuSection === 'buckets';
     this.is_temperature_controlled =
       TEMPERATURE_CONTROLLED_FLAVORS.has(flavor) || typeInfo.temperatureControlled === true;
+    // Can't be shipped, for any reason: it needs refrigeration (temperature
+    // controlled, which always means pickup only) or the shop simply doesn't ship it
+    // (`pickupOnly` on the type, e.g. the Gobble Bucket). An order holding such an
+    // item can only be a pickup order — see requiresPickup in Order.js. The menu
+    // card tells the two apart: "Temperature Controlled: Pickup Required" versus
+    // plain "Pickup Only".
+    this.is_pickup_only = this.is_temperature_controlled || typeInfo.pickupOnly === true;
     // Staff-toggled via POST /api/products/:id/set-sold-out in index.js —
     // lives only on this in-memory catalog entry, so it resets to false
     // whenever the backend restarts.
@@ -219,7 +257,10 @@ export class Cookie {
     this.is_batch = false;
     this.is_bucket = false;
     this.is_cozy_rolls = false;
+    this.is_item = false;
     this.showSizeOnMenu = typeInfo.showSizeOnMenu === true;
+    // The line under the product's name on the menu card, if the type has one.
+    this.menuDescription = typeInfo.description ?? null;
     // How the menu draws this product (see the type definitions above): a
     // price on its own card, and/or grouped into a flavor-picker card.
     this.priceOnCard = typeInfo.priceOnCard === true;
@@ -243,6 +284,10 @@ export class Cookie {
       // (shipping box size — moot, it's pickup-only — and the Sales page's
       // cookies-per-flavor ranking). It still counts normally as an item.
       this.is_bucket = true;
+    } else if (size === 'item') {
+      // A fixed seasonal product (see the seasonal_* types above): its own item,
+      // not individual cookies, so — like a bucket — no physicalCookieUnits.
+      this.is_item = true;
     }
   }
 
@@ -256,6 +301,7 @@ export class Cookie {
     if (this.is_batch) return prices.batch;
     if (this.is_bucket) return prices.bucket;
     if (this.is_cozy_rolls) return prices.cozy_rolls;
+    if (this.is_item) return prices.item;
     return 0;
   }
 
@@ -268,6 +314,9 @@ export class Cookie {
     // (Monster)" wherever flavor + sizeLabel are shown together.
     if (this.is_bucket) return this.baseFlavor;
     if (this.is_cozy_rolls) return SIZE_LABELS.cozy_rolls;
+    // A fixed seasonal item reads "Gobble Bucket (Chocolate Chip, Monster &
+    // Sugar)" wherever name + sizeLabel are shown together.
+    if (this.is_item) return TYPES[this.type].itemLabel ?? SIZE_LABELS.item;
     return null;
   }
 
@@ -280,6 +329,7 @@ export class Cookie {
       flavor: this.flavor,
       baseFlavor: this.baseFlavor,
       is_temperature_controlled: this.is_temperature_controlled,
+      is_pickup_only: this.is_pickup_only,
       is_sold_out: this.is_sold_out,
       is_single: this.is_single,
       is_half_dozen: this.is_half_dozen,
@@ -287,6 +337,8 @@ export class Cookie {
       is_batch: this.is_batch,
       is_bucket: this.is_bucket,
       is_cozy_rolls: this.is_cozy_rolls,
+      is_item: this.is_item,
+      menuDescription: this.menuDescription,
       menuSizeNote: this.showSizeOnMenu ? this.sizeLabel : null,
       priceOnCard: this.priceOnCard,
       pickerTitle: this.pickerTitle,

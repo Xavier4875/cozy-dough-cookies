@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
+    "test": "node --test --test-force-exit test/unit.test.js test/integration.test.js",
+    "test:unit": "node --test --test-force-exit test/unit.test.js",
+    "test:integration": "node --test --test-force-exit test/integration.test.js",
     "db:setup": "node scripts/createTables.js",
     "db:local": "node scripts/start-dynamodb-local.js",
     "db:backfill-customers": "node scripts/backfillCustomersFromCognito.js"

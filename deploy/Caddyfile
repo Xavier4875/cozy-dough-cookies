@@ -1,10 +1,6 @@
 cozydoughcookies.com {
 	encode zstd gzip
 
-	# QUIET LAUNCH — asks search engines not to index the site. Delete this
-	# header (and `docker compose restart caddy`) when the site goes public.
-	header X-Robots-Tag "noindex, nofollow"
-
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin

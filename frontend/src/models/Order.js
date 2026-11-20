@@ -75,9 +75,12 @@ export class Order {
     return this.items.reduce((sum, item) => sum + item.qty, 0);
   }
 
-  // Shipping isn't available when any item needs refrigeration.
+  // Shipping isn't available when any item can't be shipped: it needs
+  // refrigeration, or the shop simply doesn't ship it (is_pickup_only, e.g. the
+  // Gobble Bucket). Redeemed rewards carry only is_temperature_controlled, which is
+  // why that is checked too. UX preview only; the server decides.
   get requiresPickup() {
-    return this.items.some((item) => item.cookie.is_temperature_controlled);
+    return this.items.some((item) => item.cookie.is_pickup_only || item.cookie.is_temperature_controlled);
   }
 
   // Actual physical cookie count, weighted by box size — distinct from

@@ -574,8 +574,12 @@ async function resolveCheckoutRequest(req) {
   if (minimumError) return { error: minimumError, status: 400 };
 
   if (fulfillment.method === 'shipping' && cart.orders.some((order) => order.requiresPickup)) {
+    // Say why: refrigerated items versus items the shop just doesn't ship.
+    const hasRefrigerated = cart.orders.some((order) => order.items.some((item) => item.cookie.is_temperature_controlled));
     return {
-      error: 'This order contains temperature-controlled items that can only be picked up, not shipped.',
+      error: hasRefrigerated
+        ? 'This order contains temperature-controlled items that can only be picked up, not shipped.'
+        : 'This order contains items that are available for pickup only, not shipping.',
       status: 400,
     };
   }

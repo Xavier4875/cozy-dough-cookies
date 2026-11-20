@@ -233,6 +233,7 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
       <Elements stripe={stripePromise} options={{ clientSecret }}>
         <StripePaymentForm
           amount={paymentAmount}
+          contact={pendingDetails?.contact}
           onSuccess={handlePaymentSuccess}
           onBack={handlePaymentBack}
           submitting={submitting}
@@ -330,8 +331,7 @@ function CheckoutForm({ onSubmit, onCreatePaymentIntent, onCancel, submitting, e
               <span>Fulfillment</span>
               {pickupOnly ? (
                 <p className="checkout-form-note">
-                  Pickup only — this order contains temperature-controlled items that can&apos;t be
-                  shipped.
+                  Pickup only — this order contains items that can&apos;t be shipped.
                 </p>
               ) : (
                 <div className="checkout-form-radios">
